@@ -171,6 +171,9 @@ button.link:hover {
 .donate {
   padding-top: 10px;
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .donate p {
