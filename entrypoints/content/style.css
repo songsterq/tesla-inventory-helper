@@ -1,0 +1,19 @@
+@keyframes tih-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.55),
+      0 0 18px 4px rgba(255, 191, 0, 0.55);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.95),
+      0 0 28px 8px rgba(255, 191, 0, 0.85);
+  }
+}
+
+article.tih-glow {
+  border-radius: 8px;
+  animation: tih-pulse 1.6s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
+}
