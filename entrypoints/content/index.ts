@@ -2,11 +2,14 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 import { browser } from 'wxt/browser';
 import { rulesItem } from '../../src/storage';
 import { evalRules, type Rules } from '../../src/rules';
-import { extractVin } from '../../src/vin';
+import { extractVin, extractVinFromOrderPath } from '../../src/vin';
 import './style.css';
 
 export default defineContentScript({
-  matches: ['https://www.tesla.com/inventory/*'],
+  matches: [
+    'https://www.tesla.com/inventory/*',
+    'https://www.tesla.com/*/order/*',
+  ],
   runAt: 'document_idle',
   cssInjectionMode: 'manifest',
 
@@ -22,7 +25,17 @@ export default defineContentScript({
       }
     };
 
-    const apply = () => {
+    const setGlow = (el: HTMLElement, ruleName: string | null) => {
+      if (ruleName) {
+        el.classList.add('tih-glow');
+        el.dataset.tihMatch = ruleName;
+      } else {
+        el.classList.remove('tih-glow');
+        delete el.dataset.tihMatch;
+      }
+    };
+
+    const applyInventory = () => {
       const articles = document.querySelectorAll<HTMLElement>(
         'main.inventory-content-wrapper article[data-id]',
       );
@@ -30,16 +43,28 @@ export default defineContentScript({
       articles.forEach((article) => {
         const vin = extractVin(article.getAttribute('data-id'));
         const hit = vin ? evalRules(vin, rules) : null;
-        if (hit) {
-          article.classList.add('tih-glow');
-          article.dataset.tihMatch = hit.name;
-          matched++;
-        } else {
-          article.classList.remove('tih-glow');
-          delete article.dataset.tihMatch;
-        }
+        setGlow(article, hit?.name ?? null);
+        if (hit) matched++;
       });
       broadcastStatus(matched, articles.length);
+    };
+
+    const applyOrder = () => {
+      const container = document.querySelector<HTMLElement>('.vehicle-summary-container');
+      if (!container) {
+        broadcastStatus(0, 0);
+        return;
+      }
+      const vin = extractVinFromOrderPath(location.pathname);
+      const hit = vin ? evalRules(vin, rules) : null;
+      setGlow(container, hit?.name ?? null);
+      broadcastStatus(hit ? 1 : 0, 1);
+    };
+
+    const apply = () => {
+      const path = location.pathname;
+      if (path.startsWith('/inventory/')) return applyInventory();
+      if (/\/order\/[A-Za-z0-9]+/.test(path)) return applyOrder();
     };
 
     const schedule = () => {
@@ -62,11 +87,14 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((msg) => {
       if (msg && (msg as { type?: string }).type === 'tih:ping') {
-        const articles = document.querySelectorAll<HTMLElement>(
-          'main.inventory-content-wrapper article[data-id]',
-        );
-        const matched = document.querySelectorAll('article.tih-glow').length;
-        return Promise.resolve({ matched, total: articles.length });
+        const matchedEls = document.querySelectorAll('.tih-glow');
+        const total =
+          location.pathname.startsWith('/inventory/')
+            ? document.querySelectorAll('main.inventory-content-wrapper article[data-id]').length
+            : document.querySelector('.vehicle-summary-container')
+              ? 1
+              : 0;
+        return Promise.resolve({ matched: matchedEls.length, total });
       }
       return undefined;
     });

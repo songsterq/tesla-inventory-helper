@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { evalRules, parseRules, type Rules } from '../src/rules';
 import { defaultRules } from '../src/defaultRules';
-import { extractVin } from '../src/vin';
+import { extractVin, extractVinFromOrderPath } from '../src/vin';
 
 describe('extractVin', () => {
   it('returns the leading VIN segment from a data-id', () => {
@@ -12,6 +12,33 @@ describe('extractVin', () => {
     expect(extractVin(null)).toBeNull();
     expect(extractVin('')).toBeNull();
     expect(extractVin('SHORT-search-result-container')).toBeNull();
+  });
+});
+
+describe('extractVinFromOrderPath', () => {
+  it('pulls the VIN from /my/order/<VIN>', () => {
+    expect(extractVinFromOrderPath('/my/order/7SAYGDED8PF946749')).toBe('7SAYGDED8PF946749');
+  });
+
+  it('handles other model code prefixes', () => {
+    expect(extractVinFromOrderPath('/m3/order/5YJ3E1EA1NF000001')).toBe('5YJ3E1EA1NF000001');
+  });
+
+  it('uppercases the result', () => {
+    expect(extractVinFromOrderPath('/my/order/7sAyGDED8PF946749')).toBe('7SAYGDED8PF946749');
+  });
+
+  it('returns null when no /order/ segment is present', () => {
+    expect(extractVinFromOrderPath('/my/inventory/used/m3')).toBeNull();
+  });
+
+  it('returns null on a too-short VIN segment', () => {
+    expect(extractVinFromOrderPath('/my/order/SHORT')).toBeNull();
+  });
+
+  it('returns null on empty / null input', () => {
+    expect(extractVinFromOrderPath(null)).toBeNull();
+    expect(extractVinFromOrderPath('')).toBeNull();
   });
 });
 

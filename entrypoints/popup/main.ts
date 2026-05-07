@@ -59,8 +59,12 @@ function flashStatus(message: string) {
 
 async function refreshStatus() {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url || !/^https:\/\/www\.tesla\.com\/inventory\//.test(tab.url)) {
-    statusEl.textContent = 'Open a Tesla inventory page to see match counts.';
+  if (
+    !tab?.id ||
+    !tab.url ||
+    !/^https:\/\/www\.tesla\.com\/(inventory\/|[^/]+\/order\/)/.test(tab.url)
+  ) {
+    statusEl.textContent = 'Open a Tesla inventory or order page to see match counts.';
     return;
   }
   try {

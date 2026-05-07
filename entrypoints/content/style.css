@@ -11,7 +11,7 @@
   }
 }
 
-article.tih-glow {
+.tih-glow {
   border-radius: 8px;
   animation: tih-pulse 1.6s ease-in-out infinite;
   position: relative;
