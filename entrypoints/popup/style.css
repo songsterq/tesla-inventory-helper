@@ -120,3 +120,50 @@ button.link {
 button.link:hover {
   color: var(--fg);
 }
+
+.test {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.test label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.test input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.test input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.test-result {
+  margin: 0;
+  font-size: 12px;
+  min-height: 1.2em;
+  color: var(--muted);
+}
+
+.test-result.match {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.test-result.miss {
+  color: var(--error);
+}

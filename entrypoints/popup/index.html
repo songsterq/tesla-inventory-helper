@@ -18,6 +18,19 @@
         <button id="save" type="button">Save</button>
         <button id="restore" type="button" class="link">Restore defaults</button>
       </div>
+      <section class="test">
+        <label for="test-vin">Test a VIN against the rules above</label>
+        <input
+          id="test-vin"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="characters"
+          maxlength="17"
+          placeholder="e.g. 7SAYGDEE5PF789500"
+        />
+        <p id="test-result" class="test-result"></p>
+      </section>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

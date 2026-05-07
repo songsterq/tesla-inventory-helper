@@ -1,13 +1,15 @@
 import { browser } from 'wxt/browser';
 import { rulesItem } from '../../src/storage';
 import { defaultRules } from '../../src/defaultRules';
-import { parseRules } from '../../src/rules';
+import { evalRules, parseRules } from '../../src/rules';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const saveBtn = document.getElementById('save') as HTMLButtonElement;
 const restoreBtn = document.getElementById('restore') as HTMLButtonElement;
 const errorEl = document.getElementById('error') as HTMLParagraphElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
+const testInput = document.getElementById('test-vin') as HTMLInputElement;
+const testResult = document.getElementById('test-result') as HTMLParagraphElement;
 
 void init();
 
@@ -16,7 +18,48 @@ async function init() {
   textarea.value = JSON.stringify(rules, null, 2);
   saveBtn.addEventListener('click', onSave);
   restoreBtn.addEventListener('click', onRestore);
+  textarea.addEventListener('input', runTest);
+  testInput.addEventListener('input', runTest);
   refreshStatus();
+  runTest();
+}
+
+function runTest() {
+  const raw = testInput.value.trim().toUpperCase();
+  if (testInput.value !== raw) testInput.value = raw;
+  testResult.classList.remove('match', 'miss');
+
+  if (raw.length === 0) {
+    testResult.textContent = '';
+    return;
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(textarea.value);
+  } catch {
+    testResult.textContent = 'Fix rules JSON to test.';
+    return;
+  }
+  const result = parseRules(parsedJson);
+  if (!result.ok) {
+    testResult.textContent = 'Fix rules to test.';
+    return;
+  }
+
+  if (raw.length !== 17) {
+    testResult.textContent = `Enter 17 characters (${raw.length} so far).`;
+    return;
+  }
+
+  const hit = evalRules(raw, result.rules);
+  if (hit) {
+    testResult.classList.add('match');
+    testResult.textContent = `✓ Matched: ${hit.name}`;
+  } else {
+    testResult.classList.add('miss');
+    testResult.textContent = '✗ No rule matches this VIN.';
+  }
 }
 
 async function onSave() {
@@ -38,6 +81,7 @@ async function onSave() {
   textarea.value = JSON.stringify(result.rules, null, 2);
   flashStatus('Saved.');
   refreshStatus();
+  runTest();
 }
 
 async function onRestore() {
@@ -46,6 +90,7 @@ async function onRestore() {
   errorEl.hidden = true;
   flashStatus('Restored defaults.');
   refreshStatus();
+  runTest();
 }
 
 function showError(message: string) {
