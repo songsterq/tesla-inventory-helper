@@ -3,3 +3,4 @@ node_modules
 .wxt
 *.log
 .DS_Store
+.claude/settings.local.json

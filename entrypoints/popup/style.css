@@ -167,3 +167,25 @@ button.link:hover {
 .test-result.miss {
   color: var(--error);
 }
+
+.donate {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.donate p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.donate a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.donate a:hover {
+  text-decoration: underline;
+}
