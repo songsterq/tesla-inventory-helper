@@ -5,3 +5,7 @@ import { defaultRules } from './defaultRules';
 export const rulesItem = storage.defineItem<Rules>('sync:rules', {
   fallback: defaultRules,
 });
+
+export const highlightingEnabledItem = storage.defineItem<boolean>('sync:highlightingEnabled', {
+  fallback: true,
+});

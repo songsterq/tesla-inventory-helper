@@ -1,6 +1,6 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { browser } from 'wxt/browser';
-import { rulesItem } from '../../src/storage';
+import { highlightingEnabledItem, rulesItem } from '../../src/storage';
 import { evalRules, type Rules } from '../../src/rules';
 import { extractVin, extractVinFromOrderPath } from '../../src/vin';
 import './style.css';
@@ -15,6 +15,7 @@ export default defineContentScript({
 
   async main(ctx) {
     let rules: Rules = await rulesItem.getValue();
+    let highlightingEnabled = await highlightingEnabledItem.getValue();
     let scheduled = false;
 
     const broadcastStatus = (matched: number, total: number) => {
@@ -35,10 +36,20 @@ export default defineContentScript({
       }
     };
 
+    const clearGlows = () => {
+      document.querySelectorAll<HTMLElement>('.tih-glow').forEach((el) => setGlow(el, null));
+    };
+
     const applyInventory = () => {
       const articles = document.querySelectorAll<HTMLElement>(
         'main.inventory-content-wrapper article[data-id]',
       );
+      if (!highlightingEnabled) {
+        articles.forEach((article) => setGlow(article, null));
+        broadcastStatus(0, articles.length);
+        return;
+      }
+
       let matched = 0;
       articles.forEach((article) => {
         const vin = extractVin(article.getAttribute('data-id'));
@@ -55,6 +66,12 @@ export default defineContentScript({
         broadcastStatus(0, 0);
         return;
       }
+      if (!highlightingEnabled) {
+        setGlow(container, null);
+        broadcastStatus(0, 1);
+        return;
+      }
+
       const vin = extractVinFromOrderPath(location.pathname);
       const hit = vin ? evalRules(vin, rules) : null;
       setGlow(container, hit?.name ?? null);
@@ -82,6 +99,12 @@ export default defineContentScript({
 
     rulesItem.watch((next) => {
       rules = next;
+      schedule();
+    });
+
+    highlightingEnabledItem.watch((next) => {
+      highlightingEnabled = next;
+      if (!highlightingEnabled) clearGlows();
       schedule();
     });
 

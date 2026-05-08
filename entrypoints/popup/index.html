@@ -12,6 +12,14 @@
       <p id="status" class="status">Open a Tesla inventory or order page to see match counts.</p>
     </header>
     <main>
+      <section class="highlight-toggle" aria-labelledby="highlight-toggle-title">
+        <h2 id="highlight-toggle-title">Highlight Matches</h2>
+        <label class="switch" for="highlighting-enabled">
+          <span class="sr-only">Highlight Matches</span>
+          <input id="highlighting-enabled" type="checkbox" checked />
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+      </section>
       <textarea id="rules" spellcheck="false" autocomplete="off"></textarea>
       <p id="error" class="error" hidden></p>
       <div class="actions">

@@ -1,9 +1,12 @@
 import { browser } from 'wxt/browser';
-import { rulesItem } from '../../src/storage';
+import { highlightingEnabledItem, rulesItem } from '../../src/storage';
 import { defaultRules } from '../../src/defaultRules';
 import { evalRules, parseRules } from '../../src/rules';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
+const highlightingEnabledInput = document.getElementById(
+  'highlighting-enabled',
+) as HTMLInputElement;
 const saveBtn = document.getElementById('save') as HTMLButtonElement;
 const restoreBtn = document.getElementById('restore') as HTMLButtonElement;
 const errorEl = document.getElementById('error') as HTMLParagraphElement;
@@ -15,7 +18,9 @@ void init();
 
 async function init() {
   const rules = await rulesItem.getValue();
+  highlightingEnabledInput.checked = await highlightingEnabledItem.getValue();
   textarea.value = JSON.stringify(rules, null, 2);
+  highlightingEnabledInput.addEventListener('change', onHighlightingEnabledChange);
   saveBtn.addEventListener('click', onSave);
   restoreBtn.addEventListener('click', onRestore);
   textarea.addEventListener('input', runTest);
@@ -102,7 +107,18 @@ function flashStatus(message: string) {
   statusEl.textContent = message;
 }
 
+async function onHighlightingEnabledChange() {
+  await highlightingEnabledItem.setValue(highlightingEnabledInput.checked);
+  flashStatus(highlightingEnabledInput.checked ? 'Highlighting on.' : 'Highlighting off.');
+  refreshStatus();
+}
+
 async function refreshStatus() {
+  if (!highlightingEnabledInput.checked) {
+    statusEl.textContent = 'Highlighting is off.';
+    return;
+  }
+
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (
     !tab?.id ||
