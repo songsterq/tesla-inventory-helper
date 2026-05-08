@@ -39,8 +39,7 @@ body {
 }
 
 header {
-  padding: 12px 14px 6px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 14px 4px;
 }
 
 h1 {
@@ -56,10 +55,10 @@ h1 {
 }
 
 main {
-  padding: 10px 14px 14px;
+  padding: 6px 14px 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .highlight-toggle {
@@ -67,7 +66,7 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 2px 0 6px;
+  padding: 0 0 2px;
 }
 
 .highlight-toggle h2 {
@@ -141,7 +140,7 @@ main {
 
 textarea {
   width: 100%;
-  height: 320px;
+  height: 280px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -202,8 +201,7 @@ button.link:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+  padding-top: 4px;
 }
 
 .test label {
@@ -246,11 +244,10 @@ button.link:hover {
 }
 
 .donate {
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+  padding-top: 4px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .donate p {

@@ -10,6 +10,21 @@ describe('popup highlighting toggle', () => {
     expect(css).not.toContain('#ffbf00');
   });
 
+  it('does not show horizontal divider borders', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+
+    expect(css).not.toContain('border-top: 1px solid var(--border);');
+    expect(css).not.toContain('border-bottom: 1px solid var(--border);');
+  });
+
+  it('keeps the popup compact enough to avoid scrolling', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+
+    expect(css).toContain('height: 280px;');
+    expect(css).toContain('gap: 6px;');
+    expect(css).toContain('padding: 6px 14px 10px;');
+  });
+
   it('shows highlighting as enabled by default at the top of the popup', async () => {
     const html = await readFile(new URL('../entrypoints/popup/index.html', import.meta.url), 'utf8');
 
