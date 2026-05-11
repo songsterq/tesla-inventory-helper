@@ -17,7 +17,7 @@ const ALLOWLIST_MATCHES = [
 ];
 
 const SCAN_DEBOUNCE_MS = 250;
-const DEBUG = true;
+const DEBUG = false;
 
 const debug = (...args: unknown[]) => {
   if (!DEBUG) return;
