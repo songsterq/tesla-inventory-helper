@@ -1,12 +1,13 @@
 export const OPS = ['==', '!=', '<', '<=', '>', '>='] as const;
 export type Op = (typeof OPS)[number];
 
-export type CharsCondition = {
-  type: 'chars';
-  pos: number;
-  op: Op;
-  value: string;
-};
+// `in` is supported only for chars conditions and requires a non-empty
+// string[] value. It tests whether the slice at `pos` (length = value[i].length)
+// matches any of the listed strings — useful for "starts with one of these WMIs"
+// without having to author N separate rules.
+export type CharsCondition =
+  | { type: 'chars'; pos: number; op: Op; value: string }
+  | { type: 'chars'; pos: number; op: 'in'; value: string[] };
 
 export type NumberCondition = {
   type: 'number';
@@ -64,8 +65,23 @@ function parseCondition(
     if (!isPositiveInt(c.pos)) {
       return { ok: false, error: `${where}: "pos" must be a positive integer (1-indexed).` };
     }
+    if (c.op === 'in') {
+      if (!Array.isArray(c.value) || c.value.length === 0) {
+        return { ok: false, error: `${where}: "value" must be a non-empty array of strings when op is "in".` };
+      }
+      const len = (c.value[0] as unknown as string)?.length;
+      if (typeof len !== 'number' || len === 0) {
+        return { ok: false, error: `${where}: "value" array entries must be non-empty strings.` };
+      }
+      for (const v of c.value) {
+        if (typeof v !== 'string' || v.length !== len) {
+          return { ok: false, error: `${where}: "value" entries must be non-empty strings of equal length.` };
+        }
+      }
+      return { ok: true, condition: { type: 'chars', pos: c.pos, op: 'in', value: c.value as string[] } };
+    }
     if (!isOp(c.op)) {
-      return { ok: false, error: `${where}: "op" must be one of ${OPS.join(', ')}.` };
+      return { ok: false, error: `${where}: "op" must be one of ${OPS.join(', ')}, in.` };
     }
     if (typeof c.value !== 'string' || c.value.length === 0) {
       return { ok: false, error: `${where}: "value" must be a non-empty string.` };
@@ -104,6 +120,15 @@ export function evalRules(vin: string, rules: Rules): Rule | null {
 
 function evalCondition(vin: string, c: Condition): boolean {
   if (c.type === 'chars') {
+    if (c.op === 'in') {
+      for (const v of c.value) {
+        const start = c.pos - 1;
+        const end = start + v.length;
+        if (start < 0 || end > vin.length) continue;
+        if (vin.slice(start, end) === v) return true;
+      }
+      return false;
+    }
     const start = c.pos - 1;
     const end = start + c.value.length;
     if (start < 0 || end > vin.length) return false;

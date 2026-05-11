@@ -8,6 +8,7 @@ export default defineConfig({
     permissions: ['storage'],
     host_permissions: [
       'https://www.tesla.com/inventory/*',
+      'https://www.tesla.com/*/inventory/*',
       'https://www.tesla.com/*/order/*',
     ],
     action: { default_title: 'Tesla Inventory Helper' },

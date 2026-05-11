@@ -61,23 +61,21 @@ describe('evalRules with default seed rules', () => {
     expect(evalRules('7SAYGAEE2PA100000', defaultRules)).toBeNull();
   });
 
-  it('matches a 2024 VIN via the generic 2024+ rule (early exit)', () => {
-    const hit = evalRules('7SAYGDEE5RF000001', defaultRules);
-    expect(hit?.name).toBe('HW4 (any 2024+)');
+  it('matches a 2024 Tesla VIN via the generic 2024+ rule (early exit)', () => {
+    expect(evalRules('7SAYGDEE5RF000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
+    expect(evalRules('XP7YGCEE1RB000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
+    expect(evalRules('LRWYGCEK7RR000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
+    expect(evalRules('5YJ3E1EA1RF000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
   });
 
-  it('matches a 2023 Berlin VIN via the Berlin rule', () => {
-    const hit = evalRules('XP7YGCEE1PB050000', defaultRules);
-    expect(hit?.name).toBe('HW4 Berlin 2023+');
+  it('does not match a non-Tesla 2024+ VIN', () => {
+    // 1HG is Honda WMI; pos 10 is 'R' (> 'P') but WMI fails the `in` check.
+    expect(evalRules('1HGCM82633R000001', defaultRules)).toBeNull();
   });
 
-  it('matches a 2023 Shanghai VIN via the Shanghai rule', () => {
-    const hit = evalRules('LRWYGCEK7PR050000', defaultRules);
-    expect(hit?.name).toBe('HW4 Shanghai 2023+');
-  });
-
-  it('does not match a 2022 Berlin VIN', () => {
-    expect(evalRules('XP7YGCEE1NB000001', defaultRules)).toBeNull();
+  it('does not match a 2023 Berlin/Shanghai VIN (no plant-specific rule)', () => {
+    expect(evalRules('XP7YGCEE1PB050000', defaultRules)).toBeNull();
+    expect(evalRules('LRWYGCEK7PR050000', defaultRules)).toBeNull();
   });
 });
 
@@ -162,5 +160,52 @@ describe('parseRules', () => {
     ]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/pos/i);
+  });
+
+  it('accepts a chars condition with op "in" and string[] value', () => {
+    const result = parseRules([
+      { name: 'wmi', conditions: [{ type: 'chars', pos: 1, op: 'in', value: ['5YJ', '7SA'] }] },
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects op "in" with non-array value', () => {
+    const result = parseRules([
+      { name: 'wmi', conditions: [{ type: 'chars', pos: 1, op: 'in', value: '5YJ' }] },
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/array/i);
+  });
+
+  it('rejects op "in" with mixed-length entries', () => {
+    const result = parseRules([
+      { name: 'wmi', conditions: [{ type: 'chars', pos: 1, op: 'in', value: ['5YJ', 'AA'] }] },
+    ]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/equal length/i);
+  });
+});
+
+describe('evalRules with "in" operator', () => {
+  it('matches when slice equals any listed value', () => {
+    const rules: Rules = [
+      {
+        name: 'tesla',
+        conditions: [{ type: 'chars', pos: 1, op: 'in', value: ['5YJ', '7SA', 'LRW', 'XP7'] }],
+      },
+    ];
+    expect(evalRules('5YJ3E1EA1NF000001', rules)?.name).toBe('tesla');
+    expect(evalRules('7SAYGDEE5PF633523', rules)?.name).toBe('tesla');
+    expect(evalRules('XP7YGCEE1RB000001', rules)?.name).toBe('tesla');
+  });
+
+  it('does not match when slice matches none of the listed values', () => {
+    const rules: Rules = [
+      {
+        name: 'tesla',
+        conditions: [{ type: 'chars', pos: 1, op: 'in', value: ['5YJ', '7SA'] }],
+      },
+    ];
+    expect(evalRules('1HGCM82633A004352', rules)).toBeNull();
   });
 });

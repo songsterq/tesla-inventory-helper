@@ -8,6 +8,7 @@ import './style.css';
 export default defineContentScript({
   matches: [
     'https://www.tesla.com/inventory/*',
+    'https://www.tesla.com/*/inventory/*',
     'https://www.tesla.com/*/order/*',
   ],
   runAt: 'document_idle',
@@ -80,7 +81,8 @@ export default defineContentScript({
 
     const apply = () => {
       const path = location.pathname;
-      if (path.startsWith('/inventory/')) return applyInventory();
+      // Match both `/inventory/...` (US) and `/<locale>/inventory/...` (e.g. `/en_CA/inventory/...`).
+      if (/(^|\/)inventory\//.test(path)) return applyInventory();
       if (/\/order\/[A-Za-z0-9]+/.test(path)) return applyOrder();
     };
 
@@ -111,12 +113,12 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((msg) => {
       if (msg && (msg as { type?: string }).type === 'tih:ping') {
         const matchedEls = document.querySelectorAll('.tih-glow');
-        const total =
-          location.pathname.startsWith('/inventory/')
-            ? document.querySelectorAll('main.inventory-content-wrapper article[data-id]').length
-            : document.querySelector('.vehicle-summary-container')
-              ? 1
-              : 0;
+        const isInventory = /(^|\/)inventory\//.test(location.pathname);
+        const total = isInventory
+          ? document.querySelectorAll('main.inventory-content-wrapper article[data-id]').length
+          : document.querySelector('.vehicle-summary-container')
+            ? 1
+            : 0;
         return Promise.resolve({ matched: matchedEls.length, total });
       }
       return undefined;

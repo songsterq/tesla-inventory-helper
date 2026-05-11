@@ -1,4 +1,4 @@
-import type { TeslaHwGuess, TeslaPlant, TeslaModel, TeslaVinInfo } from '../../src/decoder';
+import type { TeslaPlant, TeslaModel, TeslaVinInfo } from '../../src/decoder';
 import styles from './badge.css?raw';
 
 const ROOT_ID = 'tih-thirdparty-root';
@@ -9,41 +9,44 @@ type MountOptions = {
 
 let root: HTMLElement | null = null;
 let panelEl: HTMLElement | null = null;
-let chipEl: HTMLButtonElement | null = null;
 let bodyEl: HTMLElement | null = null;
-let expanded = false;
+
+const ICON_SVG = `<svg class="brand-icon" viewBox="0 0 128 128" aria-hidden="true"><rect width="128" height="128" rx="22" fill="#ffffff"/><g fill="#E82127"><rect x="20" y="32" width="88" height="18" rx="3"/><rect x="55" y="50" width="18" height="50" rx="3"/></g></svg>`;
 
 export function mountBadge(info: TeslaVinInfo, options: MountOptions): void {
   unmountBadge();
   root = document.createElement('div');
   root.id = ROOT_ID;
-  // Inline reset so the host page can't push our wrapper around with cascading styles.
-  root.style.cssText = 'all: initial; position: fixed; bottom: 16px; right: 16px; z-index: 2147483647;';
+  // Defensive inline styles: position the host at top-right of the viewport
+  // with !important so host-page rules targeting wildcard selectors can't
+  // dislodge it. Avoid `all: initial` here — it would reset `display` to
+  // `inline`, which breaks the popover layout.
+  root.style.setProperty('position', 'fixed', 'important');
+  root.style.setProperty('top', '16px', 'important');
+  root.style.setProperty('right', '16px', 'important');
+  root.style.setProperty('display', 'block', 'important');
+  root.style.setProperty('z-index', '2147483647', 'important');
+  root.style.setProperty('width', 'auto', 'important');
+  root.style.setProperty('height', 'auto', 'important');
+  root.style.setProperty('margin', '0', 'important');
+  root.style.setProperty('padding', '0', 'important');
+  root.style.setProperty('pointer-events', 'auto', 'important');
   const shadow = root.attachShadow({ mode: 'closed' });
 
   const style = document.createElement('style');
   style.textContent = styles;
   shadow.appendChild(style);
 
-  chipEl = document.createElement('button');
-  chipEl.className = 'chip';
-  chipEl.type = 'button';
-  chipEl.setAttribute('aria-label', 'Tesla VIN detected — show details');
-  chipEl.innerHTML = `<span class="chip-mark" aria-hidden="true">T</span><span class="chip-label">Tesla VIN</span>`;
-  chipEl.addEventListener('click', () => togglePanel());
-
   panelEl = document.createElement('div');
   panelEl.className = 'panel';
-  panelEl.hidden = true;
   panelEl.innerHTML = `
     <div class="panel-header">
+      ${ICON_SVG}
       <span class="panel-title">Tesla VIN detected</span>
-      <div class="panel-actions">
-        <button class="icon-btn close" type="button" aria-label="Dismiss for this session">×</button>
-      </div>
+      <button class="close" type="button" aria-label="Hide">×</button>
     </div>
     <div class="panel-body"></div>
-    <div class="panel-footer">Tesla Inventory Helper</div>
+    <div class="panel-footer">Powered by Tesla Inventory Helper</div>
   `;
 
   bodyEl = panelEl.querySelector<HTMLElement>('.panel-body');
@@ -53,12 +56,8 @@ export function mountBadge(info: TeslaVinInfo, options: MountOptions): void {
     options.onDismiss();
   });
 
-  shadow.appendChild(chipEl);
   shadow.appendChild(panelEl);
   document.documentElement.appendChild(root);
-
-  // Close the panel when the user clicks outside our shadow root.
-  document.addEventListener('click', onDocumentClick, true);
 }
 
 export function updateBadge(info: TeslaVinInfo): void {
@@ -67,26 +66,10 @@ export function updateBadge(info: TeslaVinInfo): void {
 }
 
 export function unmountBadge(): void {
-  document.removeEventListener('click', onDocumentClick, true);
   if (root && root.parentNode) root.parentNode.removeChild(root);
   root = null;
   panelEl = null;
-  chipEl = null;
   bodyEl = null;
-  expanded = false;
-}
-
-function togglePanel(): void {
-  if (!panelEl) return;
-  expanded = !expanded;
-  panelEl.hidden = !expanded;
-}
-
-function onDocumentClick(event: MouseEvent): void {
-  if (!expanded || !root) return;
-  if (event.composedPath().includes(root)) return;
-  expanded = false;
-  if (panelEl) panelEl.hidden = true;
 }
 
 function renderBody(info: TeslaVinInfo): void {
@@ -97,7 +80,7 @@ function renderBody(info: TeslaVinInfo): void {
     <div class="row"><span class="label">Year</span><span class="value">${escape(formatYear(info.modelYear))}</span></div>
     <div class="row"><span class="label">Plant</span><span class="value">${escape(formatPlant(info.plant))}</span></div>
     <div class="row"><span class="label">Build</span><span class="value">${escape(formatSerial(info.serial))}</span></div>
-    <div class="row"><span class="label">Autopilot HW</span><span class="value">${escape(formatHw(info.likelyHw))}</span></div>
+    <div class="row"><span class="label">Autopilot HW</span><span class="value">${escape(formatHw(info))}</span></div>
   `;
 }
 
@@ -120,15 +103,14 @@ function formatSerial(serial: number | null): string {
   return `#${serial.toLocaleString('en-US')}`;
 }
 
-function formatHw(hw: TeslaHwGuess): string {
-  switch (hw) {
-    case 'HW4':
-      return 'Likely HW4';
-    case 'HW3':
-      return 'Likely HW3';
-    default:
-      return 'Unknown';
-  }
+function formatHw(info: TeslaVinInfo): string {
+  const { likelyHw, modelYear } = info;
+  if (likelyHw === 'Unknown') return 'Unknown';
+  // Hedge the label only for 2023, the transition year where the plant +
+  // serial heuristic is doing the work. 2022-and-earlier is HW3 with no
+  // exceptions; 2024+ is HW4 across all plants.
+  const certain = modelYear !== null && (modelYear >= 2024 || modelYear <= 2022);
+  return certain ? likelyHw : `Likely ${likelyHw}`;
 }
 
 function escape(s: string): string {
