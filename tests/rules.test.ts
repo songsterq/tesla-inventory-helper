@@ -65,6 +65,20 @@ describe('evalRules with default seed rules', () => {
     const hit = evalRules('7SAYGDEE5RF000001', defaultRules);
     expect(hit?.name).toBe('HW4 (any 2024+)');
   });
+
+  it('matches a 2023 Berlin VIN via the Berlin rule', () => {
+    const hit = evalRules('XP7YGCEE1PB050000', defaultRules);
+    expect(hit?.name).toBe('HW4 Berlin 2023+');
+  });
+
+  it('matches a 2023 Shanghai VIN via the Shanghai rule', () => {
+    const hit = evalRules('LRWYGCEK7PR050000', defaultRules);
+    expect(hit?.name).toBe('HW4 Shanghai 2023+');
+  });
+
+  it('does not match a 2022 Berlin VIN', () => {
+    expect(evalRules('XP7YGCEE1NB000001', defaultRules)).toBeNull();
+  });
 });
 
 describe('evalRules edge cases', () => {
