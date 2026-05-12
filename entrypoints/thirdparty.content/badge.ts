@@ -1,4 +1,4 @@
-import type { TeslaPlant, TeslaModel, TeslaVinInfo } from '../../src/decoder';
+import type { TeslaDrivetrain, TeslaPlant, TeslaModel, TeslaVinInfo } from '../../src/decoder';
 import styles from './badge.css?raw';
 
 const ROOT_ID = 'tih-thirdparty-root';
@@ -78,6 +78,7 @@ function renderBody(info: TeslaVinInfo): void {
     <div class="vin"><span class="label">VIN</span><span class="value mono">${escape(info.vin)}</span></div>
     <div class="row"><span class="label">Model</span><span class="value">${escape(formatModel(info.model))}</span></div>
     <div class="row"><span class="label">Year</span><span class="value">${escape(formatYear(info.modelYear))}</span></div>
+    <div class="row"><span class="label">Drivetrain</span><span class="value">${escape(formatDrivetrain(info.drivetrain))}</span></div>
     <div class="row"><span class="label">Plant</span><span class="value">${escape(formatPlant(info.plant))}</span></div>
     <div class="row"><span class="label">Build</span><span class="value">${escape(formatSerial(info.serial))}</span></div>
     <div class="row"><span class="label">Autopilot HW</span><span class="value">${escape(formatHw(info))}</span></div>
@@ -101,6 +102,10 @@ function formatPlant(plant: TeslaPlant | null): string {
 function formatSerial(serial: number | null): string {
   if (serial === null) return 'Unknown';
   return `#${serial.toLocaleString('en-US')}`;
+}
+
+function formatDrivetrain(drivetrain: TeslaDrivetrain | null): string {
+  return drivetrain ?? 'Unknown';
 }
 
 function formatHw(info: TeslaVinInfo): string {

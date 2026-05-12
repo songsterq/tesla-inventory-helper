@@ -79,6 +79,42 @@ describe('decodeTeslaVin — plant', () => {
   });
 });
 
+describe('decodeTeslaVin — drivetrain (position 8)', () => {
+  it('decodes Model 3 single motor (A)', () => {
+    expect(decodeTeslaVin('5YJ3E1EA1NF000001')?.drivetrain).toBe('Single Motor');
+  });
+  it('decodes Model 3 dual motor (B)', () => {
+    expect(decodeTeslaVin('5YJ3E1EB1NF000001')?.drivetrain).toBe('Dual Motor');
+  });
+  it('decodes Model 3 dual motor performance (C)', () => {
+    expect(decodeTeslaVin('5YJ3E1EC1NF000001')?.drivetrain).toBe('Dual Motor');
+  });
+  it('decodes Model Y single motor (D)', () => {
+    expect(decodeTeslaVin('7SAYGDED5PF000001')?.drivetrain).toBe('Single Motor');
+  });
+  it('decodes Model Y dual motor (E)', () => {
+    expect(decodeTeslaVin('7SAYGDEE5PF633523')?.drivetrain).toBe('Dual Motor');
+  });
+  it('decodes Model Y dual motor performance (F)', () => {
+    expect(decodeTeslaVin('7SAYGDEF5PF000001')?.drivetrain).toBe('Dual Motor');
+  });
+  it('decodes Model S dual motor (2)', () => {
+    expect(decodeTeslaVin('5YJSA1E20NF000001')?.drivetrain).toBe('Dual Motor');
+  });
+  it('decodes Model S Plaid tri motor (6)', () => {
+    expect(decodeTeslaVin('5YJSA1E60NF000001')?.drivetrain).toBe('Tri Motor');
+  });
+  it('decodes Model X dual motor (2)', () => {
+    expect(decodeTeslaVin('5YJXCBE20NF000001')?.drivetrain).toBe('Dual Motor');
+  });
+  it('decodes hairpin K as dual on Model Y', () => {
+    expect(decodeTeslaVin('7SAYGDEK5RF000001')?.drivetrain).toBe('Dual Motor');
+  });
+  it('returns null for an undocumented position-8 code', () => {
+    expect(decodeTeslaVin('5YJ3E1EZ1NF000001')?.drivetrain).toBeNull();
+  });
+});
+
 describe('decodeTeslaVin — serial', () => {
   it('parses the 6-digit production serial', () => {
     expect(decodeTeslaVin('7SAYGDEE5PF633523')?.serial).toBe(633523);
