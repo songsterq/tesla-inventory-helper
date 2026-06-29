@@ -340,6 +340,14 @@ button.link:hover {
   color: var(--accent);
 }
 
+.saved-car-paint {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .saved-car-sub {
   font-size: 11px;
   color: var(--muted);
@@ -349,58 +357,37 @@ button.link:hover {
   text-overflow: ellipsis;
 }
 
-.saved-car-meta {
+.saved-car-price {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 2px;
+  gap: 1px;
+  flex: 0 0 auto;
 }
 
-.saved-car-price {
-  font-size: 12px;
+.price-current {
+  font-size: 13px;
   font-weight: 600;
-}
-
-.saved-car-delta {
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.saved-car-delta.down {
-  color: #1a7f37;
-}
-
-.saved-car-delta.up {
-  color: var(--accent);
-}
-
-.saved-car-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.chip {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 999px;
   white-space: nowrap;
 }
 
-.chip-idle {
-  background: transparent;
-  color: var(--muted);
+.price-status {
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.chip-drop {
-  background: rgba(26, 127, 55, 0.15);
+.price-status.idle {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.price-status.down {
   color: #1a7f37;
 }
 
-.chip-rise,
-.chip-gone {
-  background: rgba(232, 33, 39, 0.15);
+.price-status.up,
+.price-status.gone {
   color: var(--accent);
 }
 

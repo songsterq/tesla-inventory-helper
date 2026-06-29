@@ -11,6 +11,7 @@ import {
   makeSnapshot,
   MAX_SAVED_CARS,
   parsePrice,
+  pickBestPrice,
   removeCar,
   type CarSnapshot,
   type SavedCar,
@@ -34,6 +35,23 @@ const snap = (
   availability: CarSnapshot['availability'] = 'available',
   at = 1000,
 ): CarSnapshot => makeSnapshot(price, price === null ? null : 'USD', availability, at);
+
+describe('createSavedCar', () => {
+  it('defaults trim/paintName to null when no details given', () => {
+    const c = car('5YJ3E1EA0PF000001', snap(42990));
+    expect(c.trim).toBeNull();
+    expect(c.paintName).toBeNull();
+  });
+
+  it('stores supplied trim and paint name', () => {
+    const c = createSavedCar(info('5YJ3E1EA0PF000001'), 'https://x', snap(42990), {
+      trim: 'Long Range All-Wheel Drive',
+      paintName: 'Stealth Grey',
+    });
+    expect(c.trim).toBe('Long Range All-Wheel Drive');
+    expect(c.paintName).toBe('Stealth Grey');
+  });
+});
 
 describe('parsePrice', () => {
   it('parses US thousands separators', () => {
@@ -80,6 +98,30 @@ describe('parsePrice', () => {
   it('returns null value for unparseable text', () => {
     expect(parsePrice('Coming soon')).toEqual({ value: null, currency: null });
     expect(parsePrice('')).toEqual({ value: null, currency: null });
+  });
+});
+
+describe('pickBestPrice', () => {
+  it('ignores a "Reduced by" amount and takes the real price', () => {
+    expect(
+      pickBestPrice('Reduced by $1,400 Premium All-Wheel Drive $47,200 2026 Pre-Owned'),
+    ).toEqual({ value: 47200, currency: 'USD' });
+  });
+
+  it('ignores a monthly payment', () => {
+    expect(pickBestPrice('$599/mo $47,200')).toEqual({ value: 47200, currency: 'USD' });
+  });
+
+  it('ignores a "Was" original price', () => {
+    expect(pickBestPrice('Was $50,000 Now $47,200')).toEqual({ value: 47200, currency: 'USD' });
+  });
+
+  it('reads a single clean price', () => {
+    expect(pickBestPrice('$39,100')).toEqual({ value: 39100, currency: 'USD' });
+  });
+
+  it('returns null when there is no price', () => {
+    expect(pickBestPrice('No price listed')).toEqual({ value: null, currency: null });
   });
 });
 

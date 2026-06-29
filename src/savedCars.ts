@@ -22,6 +22,8 @@ export type SavedCar = {
   model: string | null;
   modelYear: number | null;
   likelyHw: string;
+  trim: string | null; // variant text, e.g. "Long Range All-Wheel Drive"
+  paintName: string | null; // paint name shown in the list, e.g. "Stealth Grey"
   savedAt: number;
   baseline: CarSnapshot; // snapshot captured when the car was saved
   latest: CarSnapshot; // most recent observation (== baseline until first check)
@@ -101,6 +103,34 @@ export function parsePrice(text: string): { value: number | null; currency: stri
   return { value: Math.round(value), currency };
 }
 
+const PRICE_TOKEN_G = /[$€£¥]\s?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/g;
+// A larger "original" price labelled like this would otherwise beat the real
+// (sale) price when we take the max, so drop amounts with this prefix.
+const ORIGINAL_PRICE_PREFIX = /\b(was|originally|msrp|reduced from)\b/i;
+
+// Choose the actual purchase price from a blob of text that may also contain a
+// price reduction ("Reduced by $1,400"), a monthly payment ("$599/mo"), fees, or
+// an original price ("Was $50,000"). The purchase price is the largest legitimate
+// amount, so take the max — except drop a larger "Was/MSRP" original, detected by
+// the words immediately before that amount (window bounded so neighbours don't
+// bleed in). Never throws.
+export function pickBestPrice(text: string): { value: number | null; currency: string | null } {
+  const src = text ?? '';
+  let prevEnd = 0;
+  let best: { value: number; currency: string | null } | null = null;
+  for (const m of src.matchAll(PRICE_TOKEN_G)) {
+    const idx = m.index ?? 0;
+    const before = src.slice(Math.max(prevEnd, idx - 16), idx);
+    prevEnd = idx + m[0].length;
+    if (ORIGINAL_PRICE_PREFIX.test(before)) continue;
+    const parsed = parsePrice(m[0]);
+    if (parsed.value !== null && (best === null || parsed.value > best.value)) {
+      best = { value: parsed.value, currency: parsed.currency };
+    }
+  }
+  return best ?? { value: null, currency: null };
+}
+
 export function makeSnapshot(
   price: number | null,
   currency: string | null,
@@ -110,13 +140,20 @@ export function makeSnapshot(
   return { price, currency, availability, at };
 }
 
-export function createSavedCar(info: TeslaVinInfo, url: string, snapshot: CarSnapshot): SavedCar {
+export function createSavedCar(
+  info: TeslaVinInfo,
+  url: string,
+  snapshot: CarSnapshot,
+  details?: { trim?: string | null; paintName?: string | null },
+): SavedCar {
   return {
     vin: info.vin,
     url,
     model: info.model,
     modelYear: info.modelYear,
     likelyHw: info.likelyHw,
+    trim: details?.trim ?? null,
+    paintName: details?.paintName ?? null,
     savedAt: snapshot.at,
     baseline: snapshot,
     latest: snapshot,

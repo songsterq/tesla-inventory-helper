@@ -4,7 +4,14 @@ import { highlightingEnabledItem, rulesItem, savedCarsItem } from '../../src/sto
 import { evalRules, type Rules } from '../../src/rules';
 import { extractVin, extractVinFromOrderPath } from '../../src/vin';
 import { decodeTeslaVin, type TeslaModel } from '../../src/decoder';
-import { addCar, createSavedCar, makeSnapshot, parsePrice, removeCar } from '../../src/savedCars';
+import {
+  addCar,
+  createSavedCar,
+  makeSnapshot,
+  parsePrice,
+  pickBestPrice,
+  removeCar,
+} from '../../src/savedCars';
 import './style.css';
 
 // Result of scraping the current order page for the monitoring feature.
@@ -26,11 +33,7 @@ const MODEL_SLUG: Record<TeslaModel, string> = {
 };
 
 // ─── BRITTLE: tesla.com DOM scraping. Keep guarded; never throw. ───
-const PRICE_SELECTORS = [
-  '.vehicle-summary-container .tds-price',
-  '.vehicle-summary-container [class*="price" i]',
-  '[class*="summary" i] [class*="price" i]',
-];
+const PRICE_EXCLUDE = /reduc|save|\boff\b|\bwas\b|\/mo|per month|month|lease|\bdue\b|down/i;
 
 const UNAVAILABLE_MARKERS = [
   'no longer available',
@@ -39,25 +42,57 @@ const UNAVAILABLE_MARKERS = [
   'has been sold',
 ];
 
-const onOrderPage = () => /\/order\/[A-Za-z0-9]+/.test(location.pathname);
+const TRIM_RE =
+  /(?:Standard Range|Long Range|Performance)\s+(?:All-Wheel Drive|Rear-Wheel Drive)|All-Wheel Drive|Rear-Wheel Drive/i;
 
-function scrapePrice(): { value: number | null; currency: string | null } {
-  for (const sel of PRICE_SELECTORS) {
-    const text = document.querySelector<HTMLElement>(sel)?.textContent?.trim();
-    if (text) {
-      const parsed = parsePrice(text);
-      if (parsed.value !== null) return parsed;
-    }
-  }
-  // Fallback: pull a currency-formatted number out of the summary container text.
-  // Thousands-grouped so it can't absorb adjacent text (e.g. a trailing model year).
-  const scope = document.querySelector<HTMLElement>('.vehicle-summary-container')?.textContent ?? '';
-  const m = scope.match(/[$€£¥]\s?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/);
-  if (m) {
-    const parsed = parsePrice(m[0]);
+// Scrape a price scoped to `root` so saving from an inventory card reads that
+// card's price (not the whole page). Prefers Tesla's dedicated price element,
+// else picks the real purchase price out of the text (ignoring "Reduced by",
+// "$/mo", "Was $X", etc.). Never throws — returns nulls on miss.
+function scrapePriceIn(root: HTMLElement): { value: number | null; currency: string | null } {
+  const tds = root.querySelector<HTMLElement>('.tds-price')?.textContent?.trim();
+  if (tds && !PRICE_EXCLUDE.test(tds)) {
+    const parsed = parsePrice(tds);
     if (parsed.value !== null) return parsed;
   }
-  return { value: null, currency: null };
+  return pickBestPrice(root.textContent ?? '');
+}
+
+function scrapeTrim(root: HTMLElement): string | null {
+  const m = (root.textContent ?? '').match(TRIM_RE);
+  return m ? m[0].replace(/\s+/g, ' ').trim() : null;
+}
+
+const cleanPaintName = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  const name = raw.replace(/\s*paint\b/i, '').replace(/\s+/g, ' ').trim();
+  return name.length >= 3 && name.length <= 30 ? name : null;
+};
+
+function scrapePaintName(root: HTMLElement): string | null {
+  // (a) Details pages: the Capitalized phrase before the word "Paint" (Capitalized
+  // only, so it can't grab the glued mileage/"mi"). First match wins.
+  const named = (root.textContent ?? '').match(
+    /([A-Z][a-z]+(?:[\s-][A-Z][a-z]+){0,3})\s*Paint\b/,
+  );
+  const fromText = cleanPaintName(named?.[1]);
+  if (fromText) return fromText;
+  // (b) Inventory cards (no name in text): the swatch's accessible name — the
+  // previous sibling of the "Paint" leaf label.
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+    if (el.children.length !== 0 || el.textContent?.trim().toLowerCase() !== 'paint') continue;
+    const swatch = el.previousElementSibling;
+    if (swatch instanceof HTMLElement) {
+      const label =
+        swatch.getAttribute('title') ??
+        swatch.getAttribute('aria-label') ??
+        swatch.querySelector('img')?.getAttribute('alt') ??
+        null;
+      const name = cleanPaintName(label);
+      if (name) return name;
+    }
+  }
+  return null;
 }
 
 function detectUnavailable(): boolean {
@@ -72,8 +107,9 @@ function scrapeCar(): ScrapeResult {
   if (detectUnavailable()) {
     return { ready: true, vin, price: null, currency: null, available: false };
   }
-  if (document.querySelector('.vehicle-summary-container')) {
-    const { value, currency } = scrapePrice();
+  const container = document.querySelector<HTMLElement>('.vehicle-summary-container');
+  if (container) {
+    const { value, currency } = scrapePriceIn(container);
     if (value !== null) return { ready: true, vin, price: value, currency, available: true };
   }
   return { ready: false };
@@ -148,7 +184,16 @@ export default defineContentScript({
       return slug ? `${location.origin}/${slug}/order/${vin}` : location.href;
     };
 
-    const createMonitorButton = (vin: string, urlFor: () => string): HTMLButtonElement => {
+    const driveLabel = (dt: string | null): string | null => {
+      if (dt === 'Single Motor') return 'Rear-Wheel Drive';
+      return dt ? 'All-Wheel Drive' : null;
+    };
+
+    const createMonitorButton = (
+      vin: string,
+      host: HTMLElement,
+      urlFor: () => string,
+    ): HTMLButtonElement => {
       const btn = document.createElement('button');
       btn.className = 'tih-monitor-btn';
       btn.type = 'button';
@@ -171,11 +216,12 @@ export default defineContentScript({
         }
         const info = decodeTeslaVin(vin);
         if (!info) return;
-        // Capture a price snapshot only on order pages (inventory grids don't
-        // carry a reliable single-car price); the first check fills it in.
-        const scraped = onOrderPage() ? scrapePrice() : { value: null, currency: null };
+        // Capture price + trim + paint from the card/summary this button lives in.
+        const scraped = scrapePriceIn(host);
+        const trim = scrapeTrim(host) ?? driveLabel(info.drivetrain);
+        const paintName = scrapePaintName(host);
         const snapshot = makeSnapshot(scraped.value, scraped.currency, 'available', Date.now());
-        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot));
+        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot, { trim, paintName }));
         if (result.ok) await savedCarsItem.setValue(result.cars);
         await refresh();
       });
@@ -190,7 +236,7 @@ export default defineContentScript({
     const attachMonitorButton = (host: HTMLElement, vin: string, urlFor: () => string) => {
       if (host.querySelector('.tih-monitor-btn')) return;
       if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
-      const btn = createMonitorButton(vin, urlFor);
+      const btn = createMonitorButton(vin, host, urlFor);
       btn.classList.add('tih-monitor-card');
       host.appendChild(btn);
     };
