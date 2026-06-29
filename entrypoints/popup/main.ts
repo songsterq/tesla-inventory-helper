@@ -37,7 +37,6 @@ async function init() {
   textarea.addEventListener('input', runTest);
   testInput.addEventListener('input', runTest);
   checkNowBtn.addEventListener('click', onCheckNow);
-  refreshStatus();
   runTest();
 
   // Watchlist: render, keep it live, and acknowledge changes so the badge clears.
@@ -104,7 +103,6 @@ async function onSave() {
   await rulesItem.setValue(result.rules);
   textarea.value = JSON.stringify(result.rules, null, 2);
   flashStatus('Saved.');
-  refreshStatus();
   runTest();
 }
 
@@ -113,7 +111,6 @@ async function onRestore() {
   textarea.value = JSON.stringify(defaultRules, null, 2);
   errorEl.hidden = true;
   flashStatus('Restored defaults.');
-  refreshStatus();
   runTest();
 }
 
@@ -129,42 +126,7 @@ function flashStatus(message: string) {
 async function onHighlightingEnabledChange() {
   await highlightingEnabledItem.setValue(highlightingEnabledInput.checked);
   flashStatus(highlightingEnabledInput.checked ? 'Highlighting on.' : 'Highlighting off.');
-  refreshStatus();
 }
-
-async function refreshStatus() {
-  if (!highlightingEnabledInput.checked) {
-    statusEl.textContent = 'Highlighting is off.';
-    return;
-  }
-
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (
-    !tab?.id ||
-    !tab.url ||
-    !/^https:\/\/www\.tesla\.com\/(inventory\/|[^/]+\/order\/)/.test(tab.url)
-  ) {
-    statusEl.textContent = 'Open a Tesla inventory or order page to see match counts.';
-    return;
-  }
-  try {
-    const reply = (await browser.tabs.sendMessage(tab.id, { type: 'tih:ping' })) as
-      | { matched: number; total: number }
-      | undefined;
-    if (reply && typeof reply.matched === 'number' && typeof reply.total === 'number') {
-      statusEl.textContent = `Highlighted ${reply.matched} of ${reply.total} cars.`;
-    }
-  } catch {
-    statusEl.textContent = 'Reload the inventory page if highlights are missing.';
-  }
-}
-
-browser.runtime.onMessage.addListener((msg) => {
-  const m = msg as { type?: string; matched?: number; total?: number } | null;
-  if (m && m.type === 'tih:status') {
-    statusEl.textContent = `Highlighted ${m.matched} of ${m.total} cars.`;
-  }
-});
 
 // ─── Watchlist ───
 
@@ -173,7 +135,7 @@ function renderSavedCars(cars: SavedCars) {
   if (cars.length === 0) {
     const li = document.createElement('li');
     li.className = 'saved-empty';
-    li.textContent = 'No saved cars yet. Open a Tesla order page and click “Monitor this car”.';
+    li.textContent = 'No saved cars yet. Open a Tesla order page and click “Track”.';
     savedCarsList.appendChild(li);
     return;
   }

@@ -50,8 +50,9 @@ function scrapePrice(): { value: number | null; currency: string | null } {
     }
   }
   // Fallback: pull a currency-formatted number out of the summary container text.
+  // Thousands-grouped so it can't absorb adjacent text (e.g. a trailing model year).
   const scope = document.querySelector<HTMLElement>('.vehicle-summary-container')?.textContent ?? '';
-  const m = scope.match(/[$€£¥]\s?\d[\d.,]{2,}/);
+  const m = scope.match(/[$€£¥]\s?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/);
   if (m) {
     const parsed = parsePrice(m[0]);
     if (parsed.value !== null) return parsed;
@@ -93,14 +94,6 @@ export default defineContentScript({
     let highlightingEnabled = await highlightingEnabledItem.getValue();
     let scheduled = false;
 
-    const broadcastStatus = (matched: number, total: number) => {
-      try {
-        browser.runtime.sendMessage({ type: 'tih:status', matched, total }).catch(() => {});
-      } catch {
-        // popup may not be open; ignore
-      }
-    };
-
     const setGlow = (el: HTMLElement, ruleName: string | null) => {
       if (ruleName) {
         el.classList.add('tih-glow');
@@ -121,36 +114,27 @@ export default defineContentScript({
       );
       if (!highlightingEnabled) {
         articles.forEach((article) => setGlow(article, null));
-        broadcastStatus(0, articles.length);
         return;
       }
 
-      let matched = 0;
       articles.forEach((article) => {
         const vin = extractVin(article.getAttribute('data-id'));
         const hit = vin ? evalRules(vin, rules) : null;
         setGlow(article, hit?.name ?? null);
-        if (hit) matched++;
       });
-      broadcastStatus(matched, articles.length);
     };
 
     const applyOrder = () => {
       const container = document.querySelector<HTMLElement>('.vehicle-summary-container');
-      if (!container) {
-        broadcastStatus(0, 0);
-        return;
-      }
+      if (!container) return;
       if (!highlightingEnabled) {
         setGlow(container, null);
-        broadcastStatus(0, 1);
         return;
       }
 
       const vin = extractVinFromOrderPath(location.pathname);
       const hit = vin ? evalRules(vin, rules) : null;
       setGlow(container, hit?.name ?? null);
-      broadcastStatus(hit ? 1 : 0, 1);
     };
 
     const resolveInventoryUrl = (article: HTMLElement, vin: string): string => {
@@ -172,7 +156,7 @@ export default defineContentScript({
       const refresh = async () => {
         const cars = await savedCarsItem.getValue();
         const saved = cars.some((c) => c.vin === vin);
-        btn.textContent = saved ? '✓ Monitoring' : '+ Monitor this car';
+        btn.textContent = saved ? '✓ Tracking' : 'Track';
         btn.classList.toggle('saved', saved);
       };
 
@@ -200,12 +184,23 @@ export default defineContentScript({
       return btn;
     };
 
+    // Universal placement: float the button on the host's edge as an absolute
+    // overlay (like the .tih-glow label) so it never shifts page content. Used
+    // identically for the order-page summary and each inventory card.
+    const attachMonitorButton = (host: HTMLElement, vin: string, urlFor: () => string) => {
+      if (host.querySelector('.tih-monitor-btn')) return;
+      if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+      const btn = createMonitorButton(vin, urlFor);
+      btn.classList.add('tih-monitor-card');
+      host.appendChild(btn);
+    };
+
     const injectOrderButton = () => {
       const container = document.querySelector<HTMLElement>('.vehicle-summary-container');
-      if (!container || container.querySelector('.tih-monitor-btn')) return;
+      if (!container) return;
       const vin = extractVinFromOrderPath(location.pathname);
       if (!vin) return;
-      container.prepend(createMonitorButton(vin, () => location.href));
+      attachMonitorButton(container, vin, () => location.href);
     };
 
     const injectInventoryButtons = () => {
@@ -213,13 +208,9 @@ export default defineContentScript({
         'main.inventory-content-wrapper article[data-id]',
       );
       articles.forEach((article) => {
-        if (article.querySelector('.tih-monitor-btn')) return;
         const vin = extractVin(article.getAttribute('data-id'));
         if (!vin) return;
-        if (getComputedStyle(article).position === 'static') article.style.position = 'relative';
-        const btn = createMonitorButton(vin, () => resolveInventoryUrl(article, vin));
-        btn.classList.add('tih-monitor-card');
-        article.appendChild(btn);
+        attachMonitorButton(article, vin, () => resolveInventoryUrl(article, vin));
       });
     };
 
@@ -266,16 +257,6 @@ export default defineContentScript({
       const type = (msg as { type?: string } | null)?.type;
       if (type === 'tih:scrape') {
         return Promise.resolve(scrapeCar());
-      }
-      if (msg && (msg as { type?: string }).type === 'tih:ping') {
-        const matchedEls = document.querySelectorAll('.tih-glow');
-        const isInventory = /(^|\/)inventory\//.test(location.pathname);
-        const total = isInventory
-          ? document.querySelectorAll('main.inventory-content-wrapper article[data-id]').length
-          : document.querySelector('.vehicle-summary-container')
-            ? 1
-            : 0;
-        return Promise.resolve({ matched: matchedEls.length, total });
       }
       return undefined;
     });

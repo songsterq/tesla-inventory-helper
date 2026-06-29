@@ -9,18 +9,9 @@
   <body>
     <header>
       <h1>Tesla Inventory Helper</h1>
-      <p id="status" class="status">Open a Tesla inventory or order page to see match counts.</p>
+      <p id="status" class="status"></p>
     </header>
     <main>
-      <div class="highlight-toggle">
-        <span class="highlight-toggle-label">Highlight Matches</span>
-        <label class="switch" for="highlighting-enabled">
-          <span class="sr-only">Highlight Matches</span>
-          <input id="highlighting-enabled" type="checkbox" checked />
-          <span class="switch-track" aria-hidden="true"></span>
-        </label>
-      </div>
-
       <section class="monitor" aria-labelledby="monitor-title">
         <div class="monitor-head">
           <h2 id="monitor-title">Watchlist</h2>
@@ -31,8 +22,16 @@
       </section>
 
       <details class="rules-editor">
-        <summary>Highlight rules</summary>
+        <summary>Highlighting &amp; rules</summary>
         <div class="rules-editor-body">
+          <div class="highlight-toggle">
+            <span class="highlight-toggle-label">Highlight Matches</span>
+            <label class="switch" for="highlighting-enabled">
+              <span class="sr-only">Highlight Matches</span>
+              <input id="highlighting-enabled" type="checkbox" checked />
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
           <textarea id="rules" spellcheck="false" autocomplete="off"></textarea>
           <p id="error" class="error" hidden></p>
           <div class="actions">

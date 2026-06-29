@@ -60,6 +60,23 @@ describe('parsePrice', () => {
     expect(parsePrice('45,000')).toEqual({ value: 45000, currency: null });
   });
 
+  it('parses a clean details-page price', () => {
+    expect(parsePrice('$39,100')).toEqual({ value: 39100, currency: 'USD' });
+  });
+
+  it('does not absorb a trailing model year when text is concatenated', () => {
+    // Real bug: the price element ran straight into "2024 Pre-Owned…" with no
+    // separator, producing "$39,1002024" → must still read 39100, not 391002024.
+    expect(parsePrice('$39,1002024 Pre-Owned Vehicle with 22,945 mi')).toEqual({
+      value: 39100,
+      currency: 'USD',
+    });
+  });
+
+  it('parses an ungrouped plain number', () => {
+    expect(parsePrice('39100')).toEqual({ value: 39100, currency: null });
+  });
+
   it('returns null value for unparseable text', () => {
     expect(parsePrice('Coming soon')).toEqual({ value: null, currency: null });
     expect(parsePrice('')).toEqual({ value: null, currency: null });

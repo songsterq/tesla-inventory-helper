@@ -72,7 +72,10 @@ function detectCurrency(text: string): string | null {
 // numbers ("45,000"). Returns value:null on anything unparseable — never throws.
 export function parsePrice(text: string): { value: number | null; currency: string | null } {
   const currency = detectCurrency(text ?? '');
-  const m = (text ?? '').match(/\d[\d.,]*\d|\d/);
+  // Match a properly thousands-grouped number first so we stop at an ungrouped run
+  // (e.g. "$39,1002024…" yields "39,100", not the price+year concatenation). The
+  // second alternative covers plain ungrouped numbers like "39100".
+  const m = (text ?? '').match(/\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?/);
   if (!m) return { value: null, currency };
 
   let token = m[0] ?? '';
