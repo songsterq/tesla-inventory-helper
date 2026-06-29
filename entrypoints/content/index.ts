@@ -4,7 +4,14 @@ import { highlightingEnabledItem, rulesItem, savedCarsItem } from '../../src/sto
 import { evalRules, type Rules } from '../../src/rules';
 import { extractVin, extractVinFromOrderPath } from '../../src/vin';
 import { decodeTeslaVin, type TeslaModel } from '../../src/decoder';
-import { addCar, createSavedCar, makeSnapshot, parsePrice, removeCar } from '../../src/savedCars';
+import {
+  addCar,
+  createSavedCar,
+  makeSnapshot,
+  parsePrice,
+  pickBestPrice,
+  removeCar,
+} from '../../src/savedCars';
 import './style.css';
 
 // Result of scraping the current order page for the monitoring feature.
@@ -26,7 +33,7 @@ const MODEL_SLUG: Record<TeslaModel, string> = {
 };
 
 // ─── BRITTLE: tesla.com DOM scraping. Keep guarded; never throw. ───
-const PRICE_SELECTORS = ['.tds-price', '[class*="price" i]'];
+const PRICE_EXCLUDE = /reduc|save|\boff\b|\bwas\b|\/mo|per month|month|lease|\bdue\b|down/i;
 
 const UNAVAILABLE_MARKERS = [
   'no longer available',
@@ -47,27 +54,20 @@ const PAINT_HEX: Array<[RegExp, string]> = [
   [/ultra red|red/i, '#a82a2a'],
 ];
 
-const PRICE_RE = /[$€£¥]\s?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/;
 const TRIM_RE =
   /(?:Standard Range|Long Range|Performance)\s+(?:All-Wheel Drive|Rear-Wheel Drive)|All-Wheel Drive|Rear-Wheel Drive/i;
 
 // Scrape a price scoped to `root` so saving from an inventory card reads that
-// card's price (not the whole page). Thousands-grouped regex can't absorb a
-// trailing model year. Never throws — returns nulls on miss.
+// card's price (not the whole page). Prefers Tesla's dedicated price element,
+// else picks the real purchase price out of the text (ignoring "Reduced by",
+// "$/mo", "Was $X", etc.). Never throws — returns nulls on miss.
 function scrapePriceIn(root: HTMLElement): { value: number | null; currency: string | null } {
-  for (const sel of PRICE_SELECTORS) {
-    const text = root.querySelector<HTMLElement>(sel)?.textContent?.trim();
-    if (text) {
-      const parsed = parsePrice(text);
-      if (parsed.value !== null) return parsed;
-    }
-  }
-  const m = (root.textContent ?? '').match(PRICE_RE);
-  if (m) {
-    const parsed = parsePrice(m[0]);
+  const tds = root.querySelector<HTMLElement>('.tds-price')?.textContent?.trim();
+  if (tds && !PRICE_EXCLUDE.test(tds)) {
+    const parsed = parsePrice(tds);
     if (parsed.value !== null) return parsed;
   }
-  return { value: null, currency: null };
+  return pickBestPrice(root.textContent ?? '');
 }
 
 function scrapeTrim(root: HTMLElement): string | null {
@@ -84,18 +84,19 @@ const isVisibleColor = (c: string): boolean => {
 };
 
 function scrapePaintColor(root: HTMLElement): string | null {
-  // (a) A named paint in the text (details pages show e.g. "Stealth Grey Paint").
-  const text = root.textContent ?? '';
-  for (const [re, hex] of PAINT_HEX) if (re.test(text)) return hex;
-  // (b) A color swatch next to a "Paint" label (inventory cards show only a swatch).
+  // (a) The paint NAME, taken only from the phrase ending in "Paint" so we never
+  // pick up the interior/seats color (e.g. "All Black ... Interior").
+  const named = (root.textContent ?? '').match(/([A-Za-z][A-Za-z'’\- ]{2,30}?)\s*Paint\b/i);
+  if (named) {
+    for (const [re, hex] of PAINT_HEX) if (re.test(named[1] ?? '')) return hex;
+  }
+  // (b) The swatch immediately preceding a "Paint" label (cards show only a swatch).
+  // Only the previous sibling — not other children — so we can't grab the interior swatch.
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
     if (el.children.length !== 0 || el.textContent?.trim().toLowerCase() !== 'paint') continue;
-    const candidates = [
-      el.previousElementSibling,
-      ...(el.parentElement ? Array.from(el.parentElement.children) : []),
-    ].filter((n): n is HTMLElement => n instanceof HTMLElement && n !== el);
-    for (const c of candidates) {
-      const color = getComputedStyle(c).backgroundColor;
+    const prev = el.previousElementSibling;
+    if (prev instanceof HTMLElement) {
+      const color = getComputedStyle(prev).backgroundColor;
       if (isVisibleColor(color)) return color;
     }
   }
