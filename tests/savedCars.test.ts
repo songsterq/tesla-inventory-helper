@@ -1,0 +1,166 @@
+import { describe, expect, it } from 'vitest';
+import type { TeslaVinInfo } from '../src/decoder';
+import {
+  acknowledgeAll,
+  addCar,
+  applyCheckResult,
+  changedCount,
+  createSavedCar,
+  diffSnapshot,
+  HISTORY_LIMIT,
+  makeSnapshot,
+  MAX_SAVED_CARS,
+  parsePrice,
+  removeCar,
+  type CarSnapshot,
+  type SavedCar,
+} from '../src/savedCars';
+
+const info = (vin: string): TeslaVinInfo => ({
+  vin,
+  model: 'Model 3',
+  modelYear: 2024,
+  plant: 'Fremont',
+  serial: 123456,
+  drivetrain: 'Dual Motor',
+  likelyHw: 'HW4',
+});
+
+const car = (vin: string, snapshot: CarSnapshot): SavedCar =>
+  createSavedCar(info(vin), `https://www.tesla.com/m3/order/${vin}`, snapshot);
+
+const snap = (
+  price: number | null,
+  availability: CarSnapshot['availability'] = 'available',
+  at = 1000,
+): CarSnapshot => makeSnapshot(price, price === null ? null : 'USD', availability, at);
+
+describe('parsePrice', () => {
+  it('parses US thousands separators', () => {
+    expect(parsePrice('$42,990')).toEqual({ value: 42990, currency: 'USD' });
+  });
+
+  it('parses US price with cents', () => {
+    expect(parsePrice('$42,990.00')).toEqual({ value: 42990, currency: 'USD' });
+  });
+
+  it('parses EU dot-thousands separators', () => {
+    expect(parsePrice('€51.990')).toEqual({ value: 51990, currency: 'EUR' });
+  });
+
+  it('parses EU format with comma decimals', () => {
+    expect(parsePrice('42.990,00 €')).toEqual({ value: 42990, currency: 'EUR' });
+  });
+
+  it('detects CAD from the CA$ prefix', () => {
+    expect(parsePrice('CA$45,000')).toEqual({ value: 45000, currency: 'CAD' });
+  });
+
+  it('parses a bare number with no currency', () => {
+    expect(parsePrice('45,000')).toEqual({ value: 45000, currency: null });
+  });
+
+  it('returns null value for unparseable text', () => {
+    expect(parsePrice('Coming soon')).toEqual({ value: null, currency: null });
+    expect(parsePrice('')).toEqual({ value: null, currency: null });
+  });
+});
+
+describe('diffSnapshot', () => {
+  it('reports a price drop', () => {
+    expect(diffSnapshot(snap(42990), snap(41990))).toBe('price-drop');
+  });
+
+  it('reports a price rise', () => {
+    expect(diffSnapshot(snap(42990), snap(43990))).toBe('price-rise');
+  });
+
+  it('reports no change for equal prices', () => {
+    expect(diffSnapshot(snap(42990), snap(42990))).toBe('none');
+  });
+
+  it('reports gone when unavailable', () => {
+    expect(diffSnapshot(snap(42990), snap(null, 'unavailable'))).toBe('gone');
+  });
+
+  it('never reports a change for an unknown (flaky) check', () => {
+    expect(diffSnapshot(snap(42990), snap(null, 'unknown'))).toBe('none');
+    // even if a stale price is attached to the unknown result
+    expect(diffSnapshot(snap(42990), snap(1, 'unknown'))).toBe('none');
+  });
+
+  it('reports no change when a price is missing on an available car', () => {
+    expect(diffSnapshot(snap(null), snap(42990))).toBe('none');
+  });
+});
+
+describe('applyCheckResult', () => {
+  it('updates latest and records the change, un-acknowledging on a real change', () => {
+    const start = car('5YJ3E1EA0PF000001', snap(42990, 'available', 100));
+    expect(start.acknowledged).toBe(true);
+    const after = applyCheckResult(start, snap(41990, 'available', 200));
+    expect(after.latest.price).toBe(41990);
+    expect(after.lastChange).toBe('price-drop');
+    expect(after.acknowledged).toBe(false);
+    expect(after.lastCheckedAt).toBe(200);
+  });
+
+  it('leaves acknowledgement untouched when nothing changed', () => {
+    const start = { ...car('5YJ3E1EA0PF000001', snap(42990)), acknowledged: true };
+    const after = applyCheckResult(start, snap(42990, 'available', 300));
+    expect(after.lastChange).toBe('none');
+    expect(after.acknowledged).toBe(true);
+  });
+
+  it('dedups unchanged observations in history', () => {
+    let c = car('5YJ3E1EA0PF000001', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(42990, 'available', 200));
+    c = applyCheckResult(c, snap(42990, 'available', 300));
+    expect(c.history).toHaveLength(1);
+  });
+
+  it('bounds history to HISTORY_LIMIT', () => {
+    let c = car('5YJ3E1EA0PF000001', snap(0, 'available', 0));
+    for (let i = 1; i <= HISTORY_LIMIT + 5; i++) {
+      c = applyCheckResult(c, snap(i, 'available', i));
+    }
+    expect(c.history).toHaveLength(HISTORY_LIMIT);
+    expect(c.history.at(-1)?.price).toBe(HISTORY_LIMIT + 5);
+  });
+});
+
+describe('addCar / removeCar', () => {
+  it('rejects a duplicate VIN', () => {
+    const a = car('5YJ3E1EA0PF000001', snap(42990));
+    const res1 = addCar([], a);
+    expect(res1.ok).toBe(true);
+    const res2 = addCar(res1.ok ? res1.cars : [], car('5YJ3E1EA0PF000001', snap(42990)));
+    expect(res2).toEqual({ ok: false, reason: 'duplicate' });
+  });
+
+  it('rejects when the list is full', () => {
+    const cars = Array.from({ length: MAX_SAVED_CARS }, (_, i) =>
+      car(`5YJ3E1EA0PF${String(i).padStart(6, '0')}`, snap(42990)),
+    );
+    const res = addCar(cars, car('5YJ3E1EA0PF999999', snap(42990)));
+    expect(res).toEqual({ ok: false, reason: 'full' });
+  });
+
+  it('removes by VIN', () => {
+    const cars = [car('5YJ3E1EA0PF000001', snap(1)), car('5YJ3E1EA0PF000002', snap(2))];
+    const after = removeCar(cars, '5YJ3E1EA0PF000001');
+    expect(after.map((c) => c.vin)).toEqual(['5YJ3E1EA0PF000002']);
+  });
+});
+
+describe('changedCount / acknowledgeAll', () => {
+  it('counts only unacknowledged changes and clears them on acknowledge', () => {
+    let c1 = car('5YJ3E1EA0PF000001', snap(42990, 'available', 100));
+    c1 = applyCheckResult(c1, snap(41990, 'available', 200)); // price-drop, unacknowledged
+    const c2 = car('5YJ3E1EA0PF000002', snap(50000)); // no change
+    const cars = [c1, c2];
+    expect(changedCount(cars)).toBe(1);
+    const acked = acknowledgeAll(cars);
+    expect(changedCount(acked)).toBe(0);
+  });
+});

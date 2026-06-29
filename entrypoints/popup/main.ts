@@ -1,7 +1,15 @@
 import { browser } from 'wxt/browser';
-import { highlightingEnabledItem, rulesItem } from '../../src/storage';
+import { highlightingEnabledItem, rulesItem, savedCarsItem } from '../../src/storage';
 import { defaultRules } from '../../src/defaultRules';
 import { evalRules, parseRules } from '../../src/rules';
+import {
+  acknowledgeAll,
+  changedCount,
+  removeCar,
+  type CarSnapshot,
+  type SavedCar,
+  type SavedCars,
+} from '../../src/savedCars';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const highlightingEnabledInput = document.getElementById(
@@ -13,6 +21,9 @@ const errorEl = document.getElementById('error') as HTMLParagraphElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
 const testInput = document.getElementById('test-vin') as HTMLInputElement;
 const testResult = document.getElementById('test-result') as HTMLParagraphElement;
+const checkNowBtn = document.getElementById('check-now') as HTMLButtonElement;
+const checkProgress = document.getElementById('check-progress') as HTMLParagraphElement;
+const savedCarsList = document.getElementById('saved-cars') as HTMLUListElement;
 
 void init();
 
@@ -25,8 +36,16 @@ async function init() {
   restoreBtn.addEventListener('click', onRestore);
   textarea.addEventListener('input', runTest);
   testInput.addEventListener('input', runTest);
+  checkNowBtn.addEventListener('click', onCheckNow);
   refreshStatus();
   runTest();
+
+  // Watchlist: render, keep it live, and acknowledge changes so the badge clears.
+  const cars = await savedCarsItem.getValue();
+  renderSavedCars(cars);
+  if (changedCount(cars) > 0) await savedCarsItem.setValue(acknowledgeAll(cars));
+  savedCarsItem.watch((next) => renderSavedCars(next));
+  void pollProgress();
 }
 
 function runTest() {
@@ -146,3 +165,127 @@ browser.runtime.onMessage.addListener((msg) => {
     statusEl.textContent = `Highlighted ${m.matched} of ${m.total} cars.`;
   }
 });
+
+// ─── Watchlist ───
+
+function renderSavedCars(cars: SavedCars) {
+  savedCarsList.replaceChildren();
+  if (cars.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'saved-empty';
+    li.textContent = 'No saved cars yet. Open a Tesla order page and click “Monitor this car”.';
+    savedCarsList.appendChild(li);
+    return;
+  }
+  for (const car of cars) savedCarsList.appendChild(renderCarRow(car));
+}
+
+function renderCarRow(car: SavedCar): HTMLLIElement {
+  const li = document.createElement('li');
+  li.className = 'saved-car';
+
+  const info = document.createElement('div');
+  info.className = 'saved-car-info';
+  const title = document.createElement('a');
+  title.className = 'saved-car-title';
+  title.href = car.url;
+  title.target = '_blank';
+  title.rel = 'noopener noreferrer';
+  title.textContent = [car.modelYear, car.model].filter(Boolean).join(' ') || car.vin;
+  const sub = document.createElement('span');
+  sub.className = 'saved-car-sub';
+  sub.textContent = `${car.vin} · ${car.likelyHw}`;
+  info.append(title, sub);
+
+  const meta = document.createElement('div');
+  meta.className = 'saved-car-meta';
+  const price = document.createElement('span');
+  price.className = 'saved-car-price';
+  price.textContent = formatPrice(car.latest);
+  meta.append(price);
+  const delta = priceDelta(car);
+  if (delta) {
+    const d = document.createElement('span');
+    d.className = `saved-car-delta ${delta.cls}`;
+    d.textContent = delta.text;
+    meta.append(d);
+  }
+
+  const status = statusChip(car);
+  const chip = document.createElement('span');
+  chip.className = `chip ${status.cls}`;
+  chip.textContent = status.text;
+
+  const remove = document.createElement('button');
+  remove.className = 'saved-car-remove';
+  remove.type = 'button';
+  remove.title = 'Remove from watchlist';
+  remove.setAttribute('aria-label', `Remove ${car.vin} from watchlist`);
+  remove.textContent = '✕';
+  remove.addEventListener('click', async () => {
+    const current = await savedCarsItem.getValue();
+    await savedCarsItem.setValue(removeCar(current, car.vin));
+  });
+
+  const right = document.createElement('div');
+  right.className = 'saved-car-right';
+  right.append(chip, remove);
+
+  li.append(info, meta, right);
+  return li;
+}
+
+function formatPrice(s: CarSnapshot): string {
+  if (s.price === null) return '—';
+  const n = s.price.toLocaleString();
+  return s.currency ? `${s.currency} ${n}` : n;
+}
+
+function priceDelta(car: SavedCar): { text: string; cls: string } | null {
+  const a = car.baseline.price;
+  const b = car.latest.price;
+  if (a === null || b === null || a === b) return null;
+  const diff = b - a;
+  const sign = diff < 0 ? '−' : '+';
+  return { text: `${sign}${Math.abs(diff).toLocaleString()}`, cls: diff < 0 ? 'down' : 'up' };
+}
+
+function statusChip(car: SavedCar): { text: string; cls: string } {
+  switch (car.lastChange) {
+    case 'gone':
+      return { text: 'Sold', cls: 'chip-gone' };
+    case 'price-drop':
+      return { text: 'Price drop', cls: 'chip-drop' };
+    case 'price-rise':
+      return { text: 'Price up', cls: 'chip-rise' };
+    default:
+      return car.lastCheckedAt === null
+        ? { text: 'Not checked', cls: 'chip-idle' }
+        : { text: 'No change', cls: 'chip-idle' };
+  }
+}
+
+async function onCheckNow() {
+  checkNowBtn.disabled = true;
+  const res = (await browser.runtime.sendMessage({ type: 'tih:check-now' }).catch(() => null)) as
+    | { started: boolean; reason?: string }
+    | null;
+  if (res && !res.started && res.reason === 'busy') {
+    checkProgress.textContent = 'A check is already running…';
+  }
+  void pollProgress();
+}
+
+async function pollProgress() {
+  const p = (await browser.runtime.sendMessage({ type: 'tih:check-progress' }).catch(() => null)) as
+    | { running: boolean; done: number; total: number; currentVin: string | null }
+    | null;
+  if (p && p.running) {
+    checkNowBtn.disabled = true;
+    checkProgress.textContent = `Checking ${Math.min(p.done + 1, p.total)} of ${p.total}…`;
+    setTimeout(() => void pollProgress(), 1000);
+  } else {
+    checkNowBtn.disabled = false;
+    checkProgress.textContent = '';
+  }
+}

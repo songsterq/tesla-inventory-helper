@@ -18,6 +18,36 @@
   z-index: 1;
 }
 
+.tih-monitor-btn {
+  all: revert;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 7px 14px;
+  border: 1px solid #e82127;
+  border-radius: 999px;
+  background: #e82127;
+  color: #ffffff;
+  font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.tih-monitor-btn.saved {
+  background: #ffffff;
+  color: #e82127;
+}
+
+.tih-monitor-btn.tih-monitor-card {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 4;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
 .tih-glow::before {
   content: attr(data-tih-match);
   position: absolute;
