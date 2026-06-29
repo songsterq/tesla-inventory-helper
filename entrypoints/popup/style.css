@@ -77,6 +77,11 @@ main {
   font-weight: 600;
 }
 
+.highlight-toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .switch {
   position: relative;
   display: inline-flex;
@@ -243,6 +248,203 @@ button.link:hover {
 
 .test-result.miss {
   color: var(--error);
+}
+
+/* ─── Watchlist ─── */
+
+.monitor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.monitor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monitor-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#check-now {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+#check-now:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.check-progress {
+  margin: 0;
+  min-height: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.check-progress:empty {
+  display: none;
+}
+
+.saved-cars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.saved-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 2px;
+}
+
+.saved-car {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--hover-bg);
+}
+
+.saved-car-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.saved-car-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-car-title:hover {
+  color: var(--accent);
+}
+
+.saved-car-sub {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-car-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.saved-car-price {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.saved-car-delta {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.saved-car-delta.down {
+  color: #1a7f37;
+}
+
+.saved-car-delta.up {
+  color: var(--accent);
+}
+
+.saved-car-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.chip-idle {
+  background: transparent;
+  color: var(--muted);
+}
+
+.chip-drop {
+  background: rgba(26, 127, 55, 0.15);
+  color: #1a7f37;
+}
+
+.chip-rise,
+.chip-gone {
+  background: rgba(232, 33, 39, 0.15);
+  color: var(--accent);
+}
+
+.saved-car-remove {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.saved-car-remove:hover {
+  color: var(--accent);
+  filter: none;
+}
+
+/* ─── Rules accordion ─── */
+
+.rules-editor {
+  display: flex;
+  flex-direction: column;
+}
+
+.rules-editor > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 0;
+  list-style: revert;
+}
+
+.rules-editor[open] > summary {
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+
+.rules-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .footer {

@@ -9,36 +9,50 @@
   <body>
     <header>
       <h1>Tesla Inventory Helper</h1>
-      <p id="status" class="status">Open a Tesla inventory or order page to see match counts.</p>
+      <p id="status" class="status"></p>
     </header>
     <main>
-      <section class="highlight-toggle" aria-labelledby="highlight-toggle-title">
-        <h2 id="highlight-toggle-title">Highlight Matches</h2>
-        <label class="switch" for="highlighting-enabled">
-          <span class="sr-only">Highlight Matches</span>
-          <input id="highlighting-enabled" type="checkbox" checked />
-          <span class="switch-track" aria-hidden="true"></span>
-        </label>
+      <section class="monitor" aria-labelledby="monitor-title">
+        <div class="monitor-head">
+          <h2 id="monitor-title">Watchlist</h2>
+          <button id="check-now" type="button">Check now</button>
+        </div>
+        <p id="check-progress" class="check-progress"></p>
+        <ul id="saved-cars" class="saved-cars"></ul>
       </section>
-      <textarea id="rules" spellcheck="false" autocomplete="off"></textarea>
-      <p id="error" class="error" hidden></p>
-      <div class="actions">
-        <button id="save" type="button">Save</button>
-        <button id="restore" type="button" class="link">Restore defaults</button>
-      </div>
-      <section class="test">
-        <label for="test-vin">Test a VIN against the rules above</label>
-        <input
-          id="test-vin"
-          type="text"
-          spellcheck="false"
-          autocomplete="off"
-          autocapitalize="characters"
-          maxlength="17"
-          placeholder="e.g. 7SAYGDEE5PF789500"
-        />
-        <p id="test-result" class="test-result"></p>
-      </section>
+
+      <details class="rules-editor">
+        <summary>Highlighting &amp; rules</summary>
+        <div class="rules-editor-body">
+          <div class="highlight-toggle">
+            <span class="highlight-toggle-label">Highlight Matches</span>
+            <label class="switch" for="highlighting-enabled">
+              <span class="sr-only">Highlight Matches</span>
+              <input id="highlighting-enabled" type="checkbox" checked />
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <textarea id="rules" spellcheck="false" autocomplete="off"></textarea>
+          <p id="error" class="error" hidden></p>
+          <div class="actions">
+            <button id="save" type="button">Save</button>
+            <button id="restore" type="button" class="link">Restore defaults</button>
+          </div>
+          <section class="test">
+            <label for="test-vin">Test a VIN against the rules above</label>
+            <input
+              id="test-vin"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="characters"
+              maxlength="17"
+              placeholder="e.g. 7SAYGDEE5PF789500"
+            />
+            <p id="test-result" class="test-result"></p>
+          </section>
+        </div>
+      </details>
     </main>
     <footer class="footer">
       <a

@@ -5,7 +5,7 @@ export default defineConfig({
   manifest: {
     name: 'Tesla Inventory Helper',
     description: 'Highlights Tesla inventory cars matching configurable VIN rules.',
-    permissions: ['storage'],
+    permissions: ['storage', 'tabs'],
     host_permissions: [
       'https://www.tesla.com/inventory/*',
       'https://www.tesla.com/*/inventory/*',
