@@ -42,18 +42,6 @@ const UNAVAILABLE_MARKERS = [
   'has been sold',
 ];
 
-// Tesla paint names → an approximate swatch color. Order matters: more specific
-// names first so e.g. "Stealth Grey" wins over a generic "grey".
-const PAINT_HEX: Array<[RegExp, string]> = [
-  [/quicksilver/i, '#b6b8ba'],
-  [/stealth\s*gr[ea]y/i, '#4a4d50'],
-  [/pearl white|white/i, '#e8e8e8'],
-  [/obsidian black|solid black|black/i, '#171a20'],
-  [/midnight silver|silver|gr[ea]y/i, '#5c5e62'],
-  [/deep blue|midnight cherry|blue/i, '#1c2c4c'],
-  [/ultra red|red/i, '#a82a2a'],
-];
-
 const TRIM_RE =
   /(?:Standard Range|Long Range|Performance)\s+(?:All-Wheel Drive|Rear-Wheel Drive)|All-Wheel Drive|Rear-Wheel Drive/i;
 
@@ -75,29 +63,33 @@ function scrapeTrim(root: HTMLElement): string | null {
   return m ? m[0].replace(/\s+/g, ' ').trim() : null;
 }
 
-const isVisibleColor = (c: string): boolean => {
-  if (!c || c === 'transparent') return false;
-  const m = c.match(/rgba?\(([^)]+)\)/);
-  if (!m) return false;
-  const parts = (m[1] ?? '').split(',').map((s) => parseFloat(s));
-  return !(parts.length >= 4 && parts[3] === 0);
+const cleanPaintName = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  const name = raw.replace(/\s*paint\b/i, '').replace(/\s+/g, ' ').trim();
+  return name.length >= 3 && name.length <= 30 ? name : null;
 };
 
-function scrapePaintColor(root: HTMLElement): string | null {
-  // (a) The paint NAME, taken only from the phrase ending in "Paint" so we never
-  // pick up the interior/seats color (e.g. "All Black ... Interior").
-  const named = (root.textContent ?? '').match(/([A-Za-z][A-Za-z'’\- ]{2,30}?)\s*Paint\b/i);
-  if (named) {
-    for (const [re, hex] of PAINT_HEX) if (re.test(named[1] ?? '')) return hex;
-  }
-  // (b) The swatch immediately preceding a "Paint" label (cards show only a swatch).
-  // Only the previous sibling — not other children — so we can't grab the interior swatch.
+function scrapePaintName(root: HTMLElement): string | null {
+  // (a) Details pages: the Capitalized phrase before the word "Paint" (Capitalized
+  // only, so it can't grab the glued mileage/"mi"). First match wins.
+  const named = (root.textContent ?? '').match(
+    /([A-Z][a-z]+(?:[\s-][A-Z][a-z]+){0,3})\s*Paint\b/,
+  );
+  const fromText = cleanPaintName(named?.[1]);
+  if (fromText) return fromText;
+  // (b) Inventory cards (no name in text): the swatch's accessible name — the
+  // previous sibling of the "Paint" leaf label.
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
     if (el.children.length !== 0 || el.textContent?.trim().toLowerCase() !== 'paint') continue;
-    const prev = el.previousElementSibling;
-    if (prev instanceof HTMLElement) {
-      const color = getComputedStyle(prev).backgroundColor;
-      if (isVisibleColor(color)) return color;
+    const swatch = el.previousElementSibling;
+    if (swatch instanceof HTMLElement) {
+      const label =
+        swatch.getAttribute('title') ??
+        swatch.getAttribute('aria-label') ??
+        swatch.querySelector('img')?.getAttribute('alt') ??
+        null;
+      const name = cleanPaintName(label);
+      if (name) return name;
     }
   }
   return null;
@@ -227,9 +219,9 @@ export default defineContentScript({
         // Capture price + trim + paint from the card/summary this button lives in.
         const scraped = scrapePriceIn(host);
         const trim = scrapeTrim(host) ?? driveLabel(info.drivetrain);
-        const paintColor = scrapePaintColor(host);
+        const paintName = scrapePaintName(host);
         const snapshot = makeSnapshot(scraped.value, scraped.currency, 'available', Date.now());
-        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot, { trim, paintColor }));
+        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot, { trim, paintName }));
         if (result.ok) await savedCarsItem.setValue(result.cars);
         await refresh();
       });

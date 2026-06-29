@@ -149,43 +149,36 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   const info = document.createElement('div');
   info.className = 'saved-car-info';
 
-  const titleRow = document.createElement('div');
-  titleRow.className = 'saved-car-titlerow';
-  const dot = document.createElement('span');
-  dot.className = 'saved-car-dot';
-  dot.style.backgroundColor = car.paintColor ?? 'var(--border)';
   const title = document.createElement('a');
   title.className = 'saved-car-title';
   title.href = car.url;
   title.target = '_blank';
   title.rel = 'noopener noreferrer';
-  title.textContent =
-    [car.modelYear, car.model, car.trim].filter(Boolean).join(' ') || car.vin;
-  titleRow.append(dot, title);
+  title.textContent = [car.modelYear, car.model, car.trim].filter(Boolean).join(' ') || car.vin;
+  info.append(title);
+
+  if (car.paintName) {
+    const paint = document.createElement('span');
+    paint.className = 'saved-car-paint';
+    paint.textContent = car.paintName;
+    info.append(paint);
+  }
 
   const sub = document.createElement('span');
   sub.className = 'saved-car-sub';
   sub.textContent = `${car.vin} · ${car.likelyHw}`;
-  info.append(titleRow, sub);
+  info.append(sub);
 
-  const meta = document.createElement('div');
-  meta.className = 'saved-car-meta';
-  const price = document.createElement('span');
-  price.className = 'saved-car-price';
-  price.textContent = formatPrice(car.latest);
-  meta.append(price);
-  const delta = priceDelta(car);
-  if (delta) {
-    const d = document.createElement('span');
-    d.className = `saved-car-delta ${delta.cls}`;
-    d.textContent = delta.text;
-    meta.append(d);
-  }
-
-  const status = statusChip(car);
-  const chip = document.createElement('span');
-  chip.className = `chip ${status.cls}`;
-  chip.textContent = status.text;
+  const priceBlock = document.createElement('div');
+  priceBlock.className = 'saved-car-price';
+  const current = document.createElement('span');
+  current.className = 'price-current';
+  current.textContent = formatPrice(car.latest);
+  const status = statusLine(car);
+  const statusEl = document.createElement('span');
+  statusEl.className = `price-status ${status.cls}`;
+  statusEl.textContent = status.text;
+  priceBlock.append(current, statusEl);
 
   const remove = document.createElement('button');
   remove.className = 'saved-car-remove';
@@ -194,46 +187,55 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   remove.setAttribute('aria-label', `Remove ${car.vin} from watchlist`);
   remove.textContent = '✕';
   remove.addEventListener('click', async () => {
-    const current = await savedCarsItem.getValue();
-    await savedCarsItem.setValue(removeCar(current, car.vin));
+    const cars = await savedCarsItem.getValue();
+    await savedCarsItem.setValue(removeCar(cars, car.vin));
   });
 
-  const right = document.createElement('div');
-  right.className = 'saved-car-right';
-  right.append(chip, remove);
-
-  li.append(info, meta, right);
+  li.append(info, priceBlock, remove);
   return li;
 }
 
+const CURRENCY_SYMBOL: Record<string, string> = {
+  USD: '$',
+  CAD: 'CA$',
+  EUR: '€',
+  GBP: '£',
+  CNY: '¥',
+  JPY: '¥',
+  AUD: 'A$',
+  HKD: 'HK$',
+  CHF: 'CHF ',
+  AED: 'AED ',
+  KRW: '₩',
+};
+
+const priceSymbol = (currency: string | null): string =>
+  currency ? (CURRENCY_SYMBOL[currency] ?? '') : '';
+
 function formatPrice(s: CarSnapshot): string {
   if (s.price === null) return '—';
-  const n = s.price.toLocaleString();
-  return s.currency ? `${s.currency} ${n}` : n;
+  return `${priceSymbol(s.currency)}${s.price.toLocaleString()}`;
 }
 
-function priceDelta(car: SavedCar): { text: string; cls: string } | null {
-  const a = car.baseline.price;
-  const b = car.latest.price;
-  if (a === null || b === null || a === b) return null;
-  const diff = b - a;
-  const sign = diff < 0 ? '−' : '+';
-  return { text: `${sign}${Math.abs(diff).toLocaleString()}`, cls: diff < 0 ? 'down' : 'up' };
-}
-
-function statusChip(car: SavedCar): { text: string; cls: string } {
-  switch (car.lastChange) {
-    case 'gone':
-      return { text: 'Sold', cls: 'chip-gone' };
-    case 'price-drop':
-      return { text: 'Price drop', cls: 'chip-drop' };
-    case 'price-rise':
-      return { text: 'Price up', cls: 'chip-rise' };
-    default:
-      return car.lastCheckedAt === null
-        ? { text: 'Not checked', cls: 'chip-idle' }
-        : { text: 'No change', cls: 'chip-idle' };
+// The compact second line under the price: a signed delta, "Sold", or a muted
+// "No change" / "Not checked".
+function statusLine(car: SavedCar): { text: string; cls: string } {
+  if (car.lastChange === 'gone') return { text: 'Sold', cls: 'gone' };
+  if (car.lastChange === 'price-drop' || car.lastChange === 'price-rise') {
+    const a = car.baseline.price;
+    const b = car.latest.price;
+    if (a !== null && b !== null && a !== b) {
+      const diff = b - a;
+      const sym = priceSymbol(car.latest.currency);
+      return {
+        text: `${diff < 0 ? '−' : '+'}${sym}${Math.abs(diff).toLocaleString()}`,
+        cls: diff < 0 ? 'down' : 'up',
+      };
+    }
   }
+  return car.lastCheckedAt === null
+    ? { text: 'Not checked', cls: 'idle' }
+    : { text: 'No change', cls: 'idle' };
 }
 
 async function onCheckNow() {

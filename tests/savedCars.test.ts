@@ -37,19 +37,19 @@ const snap = (
 ): CarSnapshot => makeSnapshot(price, price === null ? null : 'USD', availability, at);
 
 describe('createSavedCar', () => {
-  it('defaults trim/paintColor to null when no details given', () => {
+  it('defaults trim/paintName to null when no details given', () => {
     const c = car('5YJ3E1EA0PF000001', snap(42990));
     expect(c.trim).toBeNull();
-    expect(c.paintColor).toBeNull();
+    expect(c.paintName).toBeNull();
   });
 
-  it('stores supplied trim and paint color', () => {
+  it('stores supplied trim and paint name', () => {
     const c = createSavedCar(info('5YJ3E1EA0PF000001'), 'https://x', snap(42990), {
       trim: 'Long Range All-Wheel Drive',
-      paintColor: '#1c2c4c',
+      paintName: 'Stealth Grey',
     });
     expect(c.trim).toBe('Long Range All-Wheel Drive');
-    expect(c.paintColor).toBe('#1c2c4c');
+    expect(c.paintName).toBe('Stealth Grey');
   });
 });
 
