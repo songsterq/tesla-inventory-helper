@@ -28,6 +28,10 @@ Source of truth for everything entered into the Chrome Web Store dashboard. Upda
 >
 > No more wondering whether a "2024 Model Y" is really a 2024, or whether a used listing is the HW4 you've been hunting.
 >
+> 🔔 Save a watchlist and catch changes
+>
+> Found a car worth keeping an eye on? Save it to your watchlist and let the extension check back for you. With one click it revisits each saved listing and tells you what moved — price drops and whether the car is still available — so you can act before someone else does. Everything happens locally in your own browser, on the listings you chose; nothing is shared.
+>
 > 🔒 Private by design
 >
 > Everything runs locally in your browser. No analytics, no servers, no tracking. The extension only reads pages on Tesla.com and a small set of car-listing sites — Chrome will show you the exact list when you install.
@@ -52,7 +56,11 @@ The justification form is reviewer-only, so it's safe to list specific hosts her
 
 ### `storage`
 
-> The extension stores two pieces of user-configurable state in `chrome.storage.sync`: the list of VIN-matching rules (which decide what gets highlighted) and an on/off toggle for highlighting. Sync storage is used so the user's rules follow their Chrome profile across devices. No data is uploaded to any third-party server.
+> The extension stores user-configurable state in `chrome.storage.sync`: the list of VIN-matching rules (which decide what gets highlighted), an on/off toggle for highlighting, and the user's saved-car watchlist (the cars they have chosen to monitor for price and availability changes). Sync storage is used so the user's rules and watchlist follow their Chrome profile across devices. No data is uploaded to any third-party server.
+
+### `tabs`
+
+> The extension lets the user save specific car listings to a watchlist and check them for price or availability changes. To perform a check, the background service worker opens each saved car's own listing URL in an inactive background tab, reads the current price and availability from that page via a content-script message, and immediately closes the tab. The `tabs` permission is required to open these background tabs (`tabs.create`), message the content script running in them (`tabs.sendMessage`), and close them when the check finishes (`tabs.remove`). Tabs are only ever opened to URLs the user themselves saved, and are closed as soon as the page has been read. No browsing history or data from the user's other tabs is accessed.
 
 ### Host permissions
 
@@ -75,5 +83,6 @@ Source PNGs go in `~/Desktop/tih/`. Run `node scripts/build-screenshots.mjs` and
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.1.0 | 2026-06-29 | Save & monitor watchlist: track saved cars for price/availability changes (adds `tabs` permission); enriched saved-car rows with price, trim, and paint color |
 | 1.0.2 | 2026-05-11 | VIN decoder popover on third-party sites, Tesla.com worldwide, `in` operator in rules engine, tightened defaults |
 | 1.0.1 | (pre) | Popup layout tightening, rating prompt, screenshot script, highlighting toggle |
