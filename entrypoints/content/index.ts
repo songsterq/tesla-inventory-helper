@@ -26,11 +26,7 @@ const MODEL_SLUG: Record<TeslaModel, string> = {
 };
 
 // ─── BRITTLE: tesla.com DOM scraping. Keep guarded; never throw. ───
-const PRICE_SELECTORS = [
-  '.vehicle-summary-container .tds-price',
-  '.vehicle-summary-container [class*="price" i]',
-  '[class*="summary" i] [class*="price" i]',
-];
+const PRICE_SELECTORS = ['.tds-price', '[class*="price" i]'];
 
 const UNAVAILABLE_MARKERS = [
   'no longer available',
@@ -39,25 +35,71 @@ const UNAVAILABLE_MARKERS = [
   'has been sold',
 ];
 
-const onOrderPage = () => /\/order\/[A-Za-z0-9]+/.test(location.pathname);
+// Tesla paint names → an approximate swatch color. Order matters: more specific
+// names first so e.g. "Stealth Grey" wins over a generic "grey".
+const PAINT_HEX: Array<[RegExp, string]> = [
+  [/quicksilver/i, '#b6b8ba'],
+  [/stealth\s*gr[ea]y/i, '#4a4d50'],
+  [/pearl white|white/i, '#e8e8e8'],
+  [/obsidian black|solid black|black/i, '#171a20'],
+  [/midnight silver|silver|gr[ea]y/i, '#5c5e62'],
+  [/deep blue|midnight cherry|blue/i, '#1c2c4c'],
+  [/ultra red|red/i, '#a82a2a'],
+];
 
-function scrapePrice(): { value: number | null; currency: string | null } {
+const PRICE_RE = /[$€£¥]\s?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/;
+const TRIM_RE =
+  /(?:Standard Range|Long Range|Performance)\s+(?:All-Wheel Drive|Rear-Wheel Drive)|All-Wheel Drive|Rear-Wheel Drive/i;
+
+// Scrape a price scoped to `root` so saving from an inventory card reads that
+// card's price (not the whole page). Thousands-grouped regex can't absorb a
+// trailing model year. Never throws — returns nulls on miss.
+function scrapePriceIn(root: HTMLElement): { value: number | null; currency: string | null } {
   for (const sel of PRICE_SELECTORS) {
-    const text = document.querySelector<HTMLElement>(sel)?.textContent?.trim();
+    const text = root.querySelector<HTMLElement>(sel)?.textContent?.trim();
     if (text) {
       const parsed = parsePrice(text);
       if (parsed.value !== null) return parsed;
     }
   }
-  // Fallback: pull a currency-formatted number out of the summary container text.
-  // Thousands-grouped so it can't absorb adjacent text (e.g. a trailing model year).
-  const scope = document.querySelector<HTMLElement>('.vehicle-summary-container')?.textContent ?? '';
-  const m = scope.match(/[$€£¥]\s?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/);
+  const m = (root.textContent ?? '').match(PRICE_RE);
   if (m) {
     const parsed = parsePrice(m[0]);
     if (parsed.value !== null) return parsed;
   }
   return { value: null, currency: null };
+}
+
+function scrapeTrim(root: HTMLElement): string | null {
+  const m = (root.textContent ?? '').match(TRIM_RE);
+  return m ? m[0].replace(/\s+/g, ' ').trim() : null;
+}
+
+const isVisibleColor = (c: string): boolean => {
+  if (!c || c === 'transparent') return false;
+  const m = c.match(/rgba?\(([^)]+)\)/);
+  if (!m) return false;
+  const parts = (m[1] ?? '').split(',').map((s) => parseFloat(s));
+  return !(parts.length >= 4 && parts[3] === 0);
+};
+
+function scrapePaintColor(root: HTMLElement): string | null {
+  // (a) A named paint in the text (details pages show e.g. "Stealth Grey Paint").
+  const text = root.textContent ?? '';
+  for (const [re, hex] of PAINT_HEX) if (re.test(text)) return hex;
+  // (b) A color swatch next to a "Paint" label (inventory cards show only a swatch).
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+    if (el.children.length !== 0 || el.textContent?.trim().toLowerCase() !== 'paint') continue;
+    const candidates = [
+      el.previousElementSibling,
+      ...(el.parentElement ? Array.from(el.parentElement.children) : []),
+    ].filter((n): n is HTMLElement => n instanceof HTMLElement && n !== el);
+    for (const c of candidates) {
+      const color = getComputedStyle(c).backgroundColor;
+      if (isVisibleColor(color)) return color;
+    }
+  }
+  return null;
 }
 
 function detectUnavailable(): boolean {
@@ -72,8 +114,9 @@ function scrapeCar(): ScrapeResult {
   if (detectUnavailable()) {
     return { ready: true, vin, price: null, currency: null, available: false };
   }
-  if (document.querySelector('.vehicle-summary-container')) {
-    const { value, currency } = scrapePrice();
+  const container = document.querySelector<HTMLElement>('.vehicle-summary-container');
+  if (container) {
+    const { value, currency } = scrapePriceIn(container);
     if (value !== null) return { ready: true, vin, price: value, currency, available: true };
   }
   return { ready: false };
@@ -148,7 +191,16 @@ export default defineContentScript({
       return slug ? `${location.origin}/${slug}/order/${vin}` : location.href;
     };
 
-    const createMonitorButton = (vin: string, urlFor: () => string): HTMLButtonElement => {
+    const driveLabel = (dt: string | null): string | null => {
+      if (dt === 'Single Motor') return 'Rear-Wheel Drive';
+      return dt ? 'All-Wheel Drive' : null;
+    };
+
+    const createMonitorButton = (
+      vin: string,
+      host: HTMLElement,
+      urlFor: () => string,
+    ): HTMLButtonElement => {
       const btn = document.createElement('button');
       btn.className = 'tih-monitor-btn';
       btn.type = 'button';
@@ -171,11 +223,12 @@ export default defineContentScript({
         }
         const info = decodeTeslaVin(vin);
         if (!info) return;
-        // Capture a price snapshot only on order pages (inventory grids don't
-        // carry a reliable single-car price); the first check fills it in.
-        const scraped = onOrderPage() ? scrapePrice() : { value: null, currency: null };
+        // Capture price + trim + paint from the card/summary this button lives in.
+        const scraped = scrapePriceIn(host);
+        const trim = scrapeTrim(host) ?? driveLabel(info.drivetrain);
+        const paintColor = scrapePaintColor(host);
         const snapshot = makeSnapshot(scraped.value, scraped.currency, 'available', Date.now());
-        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot));
+        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot, { trim, paintColor }));
         if (result.ok) await savedCarsItem.setValue(result.cars);
         await refresh();
       });
@@ -190,7 +243,7 @@ export default defineContentScript({
     const attachMonitorButton = (host: HTMLElement, vin: string, urlFor: () => string) => {
       if (host.querySelector('.tih-monitor-btn')) return;
       if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
-      const btn = createMonitorButton(vin, urlFor);
+      const btn = createMonitorButton(vin, host, urlFor);
       btn.classList.add('tih-monitor-card');
       host.appendChild(btn);
     };

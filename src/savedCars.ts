@@ -22,6 +22,8 @@ export type SavedCar = {
   model: string | null;
   modelYear: number | null;
   likelyHw: string;
+  trim: string | null; // variant text, e.g. "Long Range All-Wheel Drive"
+  paintColor: string | null; // CSS color for the list swatch dot
   savedAt: number;
   baseline: CarSnapshot; // snapshot captured when the car was saved
   latest: CarSnapshot; // most recent observation (== baseline until first check)
@@ -110,13 +112,20 @@ export function makeSnapshot(
   return { price, currency, availability, at };
 }
 
-export function createSavedCar(info: TeslaVinInfo, url: string, snapshot: CarSnapshot): SavedCar {
+export function createSavedCar(
+  info: TeslaVinInfo,
+  url: string,
+  snapshot: CarSnapshot,
+  details?: { trim?: string | null; paintColor?: string | null },
+): SavedCar {
   return {
     vin: info.vin,
     url,
     model: info.model,
     modelYear: info.modelYear,
     likelyHw: info.likelyHw,
+    trim: details?.trim ?? null,
+    paintColor: details?.paintColor ?? null,
     savedAt: snapshot.at,
     baseline: snapshot,
     latest: snapshot,

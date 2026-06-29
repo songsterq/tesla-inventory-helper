@@ -148,16 +148,25 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
 
   const info = document.createElement('div');
   info.className = 'saved-car-info';
+
+  const titleRow = document.createElement('div');
+  titleRow.className = 'saved-car-titlerow';
+  const dot = document.createElement('span');
+  dot.className = 'saved-car-dot';
+  dot.style.backgroundColor = car.paintColor ?? 'var(--border)';
   const title = document.createElement('a');
   title.className = 'saved-car-title';
   title.href = car.url;
   title.target = '_blank';
   title.rel = 'noopener noreferrer';
-  title.textContent = [car.modelYear, car.model].filter(Boolean).join(' ') || car.vin;
+  title.textContent =
+    [car.modelYear, car.model, car.trim].filter(Boolean).join(' ') || car.vin;
+  titleRow.append(dot, title);
+
   const sub = document.createElement('span');
   sub.className = 'saved-car-sub';
   sub.textContent = `${car.vin} · ${car.likelyHw}`;
-  info.append(title, sub);
+  info.append(titleRow, sub);
 
   const meta = document.createElement('div');
   meta.className = 'saved-car-meta';

@@ -35,6 +35,23 @@ const snap = (
   at = 1000,
 ): CarSnapshot => makeSnapshot(price, price === null ? null : 'USD', availability, at);
 
+describe('createSavedCar', () => {
+  it('defaults trim/paintColor to null when no details given', () => {
+    const c = car('5YJ3E1EA0PF000001', snap(42990));
+    expect(c.trim).toBeNull();
+    expect(c.paintColor).toBeNull();
+  });
+
+  it('stores supplied trim and paint color', () => {
+    const c = createSavedCar(info('5YJ3E1EA0PF000001'), 'https://x', snap(42990), {
+      trim: 'Long Range All-Wheel Drive',
+      paintColor: '#1c2c4c',
+    });
+    expect(c.trim).toBe('Long Range All-Wheel Drive');
+    expect(c.paintColor).toBe('#1c2c4c');
+  });
+});
+
 describe('parsePrice', () => {
   it('parses US thousands separators', () => {
     expect(parsePrice('$42,990')).toEqual({ value: 42990, currency: 'USD' });
