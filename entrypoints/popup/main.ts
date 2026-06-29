@@ -233,8 +233,9 @@ function statusLine(car: SavedCar): { text: string; cls: string } {
       };
     }
   }
+  // Before the first check, say nothing — "No change" only appears once checked.
   return car.lastCheckedAt === null
-    ? { text: 'Not checked', cls: 'idle' }
+    ? { text: '', cls: 'idle' }
     : { text: 'No change', cls: 'idle' };
 }
 
