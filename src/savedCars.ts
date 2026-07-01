@@ -134,18 +134,42 @@ export function pickBestPrice(text: string): { value: number | null; currency: s
 }
 
 // Parse an odometer reading out of a Tesla listing blob. Only used/demo cars have
-// one, rendered "glued" to surrounding text, e.g. "…Vehicle with 22,945 mi" or
-// "…with 22 945 km". Require a trailing mi/km unit (never on price or year) and
-// read the grouped number before it. Skip "<n> mi range" (EV range, not odometer).
-// Returns nulls on new cars / no match; never throws.
+// one; on the details page it lives in a specs section, so we may scan the whole
+// page text. Require a distance unit ("mi"/"miles"/"km"/"kilometers") as the anchor
+// — that keeps us off the price ("$39,100") and the model year ("2024"), neither of
+// which carries a unit. The wide scan means Tesla's EV *range* (also shown in "mi",
+// e.g. "279 mi range" / "Range (EPA est.) 333 mi") is a false candidate, so we skip
+// any match whose surrounding text says "range" unless it also names the odometer,
+// and prefer a match sitting next to odometer/mileage wording. Returns nulls on new
+// cars / no match; never throws.
+const MILEAGE_RE =
+  /\b(\d{1,3}(?:[.,\s]\d{3})*|\d+)\s*(mi|miles?|km|kilomet(?:er|re)s?)\b/gi;
+const ODOMETER_CONTEXT = /odometer|mileage|miles|driven/i;
+const RANGE_CONTEXT = /range/i;
+const CONTEXT_WINDOW = 24;
+
 export function parseMileage(text: string): { value: number | null; unit: 'mi' | 'km' | null } {
-  const re = /\b(\d{1,3}(?:[.,\s]\d{3})*|\d+)\s*(mi|km)\b(?!\s*range)/gi;
-  for (const m of (text ?? '').matchAll(re)) {
+  const src = text ?? '';
+  let fallback: { value: number; unit: 'mi' | 'km' } | null = null;
+  for (const m of src.matchAll(MILEAGE_RE)) {
     const value = parseInt((m[1] ?? '').replace(/[.,\s]/g, ''), 10);
-    const unit = (m[2] ?? '').toLowerCase() as 'mi' | 'km';
-    if (Number.isFinite(value) && value > 0 && value <= 500_000) return { value, unit };
+    if (!Number.isFinite(value) || value <= 0 || value > 500_000) continue;
+    const unit: 'mi' | 'km' = /^k/i.test(m[2] ?? '') ? 'km' : 'mi';
+
+    const idx = m.index ?? 0;
+    const before = src.slice(Math.max(0, idx - CONTEXT_WINDOW), idx);
+    const after = src.slice(idx + m[0].length, idx + m[0].length + CONTEXT_WINDOW);
+    const window = before + after;
+    const hasOdometer = ODOMETER_CONTEXT.test(window);
+
+    // A "range" figure with no odometer wording nearby is the EV range, not mileage.
+    if (RANGE_CONTEXT.test(window) && !hasOdometer) continue;
+    // Odometer-labelled match wins immediately; otherwise remember the first plausible
+    // candidate and keep looking for a labelled one.
+    if (hasOdometer) return { value, unit };
+    fallback ??= { value, unit };
   }
-  return { value: null, unit: null };
+  return fallback ?? { value: null, unit: null };
 }
 
 export function makeSnapshot(

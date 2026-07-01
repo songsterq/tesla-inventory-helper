@@ -166,6 +166,30 @@ describe('parseMileage', () => {
     expect(parseMileage('850 mi')).toEqual({ value: 850, unit: 'mi' });
   });
 
+  it('parses a spelled-out "miles" unit (order-page wording)', () => {
+    expect(parseMileage('22,945 miles')).toEqual({ value: 22945, unit: 'mi' });
+  });
+
+  it('parses spelled-out kilometres, US and intl spelling', () => {
+    expect(parseMileage('22,945 kilometers')).toEqual({ value: 22945, unit: 'km' });
+    expect(parseMileage('22 945 kilometres')).toEqual({ value: 22945, unit: 'km' });
+  });
+
+  it('handles a non-breaking space between number and unit', () => {
+    expect(parseMileage('22,945 mi')).toEqual({ value: 22945, unit: 'mi' });
+  });
+
+  it('prefers an odometer-labelled figure over EV range on the same page', () => {
+    expect(parseMileage('Odometer 22,945 mi · Range (EPA est.) 333 mi')).toEqual({
+      value: 22945,
+      unit: 'mi',
+    });
+  });
+
+  it('ignores a range-only figure with no odometer nearby', () => {
+    expect(parseMileage('Range (EPA est.) 333 mi')).toEqual({ value: null, unit: null });
+  });
+
   it('returns null on a new listing with a price and year but no odometer', () => {
     expect(parseMileage('Long Range All-Wheel Drive $47,200 2026 Pre-Owned')).toEqual({
       value: null,
