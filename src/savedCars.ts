@@ -24,6 +24,8 @@ export type SavedCar = {
   likelyHw: string;
   trim: string | null; // variant text, e.g. "Long Range All-Wheel Drive"
   paintName: string | null; // paint name shown in the list, e.g. "Stealth Grey"
+  mileage: number | null; // odometer reading; only used/demo cars have one
+  mileageUnit: 'mi' | 'km' | null; // display unit paired with `mileage`
   savedAt: number;
   baseline: CarSnapshot; // snapshot captured when the car was saved
   latest: CarSnapshot; // most recent observation (== baseline until first check)
@@ -131,6 +133,21 @@ export function pickBestPrice(text: string): { value: number | null; currency: s
   return best ?? { value: null, currency: null };
 }
 
+// Parse an odometer reading out of a Tesla listing blob. Only used/demo cars have
+// one, rendered "glued" to surrounding text, e.g. "…Vehicle with 22,945 mi" or
+// "…with 22 945 km". Require a trailing mi/km unit (never on price or year) and
+// read the grouped number before it. Skip "<n> mi range" (EV range, not odometer).
+// Returns nulls on new cars / no match; never throws.
+export function parseMileage(text: string): { value: number | null; unit: 'mi' | 'km' | null } {
+  const re = /\b(\d{1,3}(?:[.,\s]\d{3})*|\d+)\s*(mi|km)\b(?!\s*range)/gi;
+  for (const m of (text ?? '').matchAll(re)) {
+    const value = parseInt((m[1] ?? '').replace(/[.,\s]/g, ''), 10);
+    const unit = (m[2] ?? '').toLowerCase() as 'mi' | 'km';
+    if (Number.isFinite(value) && value > 0 && value <= 500_000) return { value, unit };
+  }
+  return { value: null, unit: null };
+}
+
 export function makeSnapshot(
   price: number | null,
   currency: string | null,
@@ -144,7 +161,12 @@ export function createSavedCar(
   info: TeslaVinInfo,
   url: string,
   snapshot: CarSnapshot,
-  details?: { trim?: string | null; paintName?: string | null },
+  details?: {
+    trim?: string | null;
+    paintName?: string | null;
+    mileage?: number | null;
+    mileageUnit?: 'mi' | 'km' | null;
+  },
 ): SavedCar {
   return {
     vin: info.vin,
@@ -154,6 +176,8 @@ export function createSavedCar(
     likelyHw: info.likelyHw,
     trim: details?.trim ?? null,
     paintName: details?.paintName ?? null,
+    mileage: details?.mileage ?? null,
+    mileageUnit: details?.mileageUnit ?? null,
     savedAt: snapshot.at,
     baseline: snapshot,
     latest: snapshot,

@@ -166,7 +166,11 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
 
   const sub = document.createElement('span');
   sub.className = 'saved-car-sub';
-  sub.textContent = `${car.vin} · ${car.likelyHw}`;
+  const parts = [car.vin, car.likelyHw];
+  if (car.mileage && car.mileageUnit) {
+    parts.push(`${car.mileage.toLocaleString()} ${car.mileageUnit}`);
+  }
+  sub.textContent = parts.join(' · ');
   info.append(sub);
 
   const priceBlock = document.createElement('div');

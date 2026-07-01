@@ -8,6 +8,7 @@ import {
   addCar,
   createSavedCar,
   makeSnapshot,
+  parseMileage,
   parsePrice,
   pickBestPrice,
   removeCar,
@@ -61,6 +62,10 @@ function scrapePriceIn(root: HTMLElement): { value: number | null; currency: str
 function scrapeTrim(root: HTMLElement): string | null {
   const m = (root.textContent ?? '').match(TRIM_RE);
   return m ? m[0].replace(/\s+/g, ' ').trim() : null;
+}
+
+function scrapeMileage(root: HTMLElement): { value: number | null; unit: 'mi' | 'km' | null } {
+  return parseMileage(root.textContent ?? '');
 }
 
 const cleanPaintName = (raw: string | null | undefined): string | null => {
@@ -220,8 +225,17 @@ export default defineContentScript({
         const scraped = scrapePriceIn(host);
         const trim = scrapeTrim(host) ?? driveLabel(info.drivetrain);
         const paintName = scrapePaintName(host);
+        const mileage = scrapeMileage(host);
         const snapshot = makeSnapshot(scraped.value, scraped.currency, 'available', Date.now());
-        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot, { trim, paintName }));
+        const result = addCar(
+          cars,
+          createSavedCar(info, urlFor(), snapshot, {
+            trim,
+            paintName,
+            mileage: mileage.value,
+            mileageUnit: mileage.unit,
+          }),
+        );
         if (result.ok) await savedCarsItem.setValue(result.cars);
         await refresh();
       });
