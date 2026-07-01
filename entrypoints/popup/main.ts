@@ -157,16 +157,14 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   title.textContent = [car.modelYear, car.model, car.trim].filter(Boolean).join(' ') || car.vin;
   info.append(title);
 
-  if (car.paintName) {
-    const paint = document.createElement('span');
-    paint.className = 'saved-car-paint';
-    paint.textContent = car.paintName;
-    info.append(paint);
-  }
-
   const sub = document.createElement('span');
   sub.className = 'saved-car-sub';
-  sub.textContent = `${car.vin} · ${car.likelyHw}`;
+  const parts = [car.paintName];
+  if (car.mileage && car.mileageUnit) {
+    parts.push(`${car.mileage.toLocaleString()} ${car.mileageUnit}`);
+  }
+  parts.push(car.likelyHw);
+  sub.textContent = parts.filter(Boolean).join(' · ');
   info.append(sub);
 
   const priceBlock = document.createElement('div');

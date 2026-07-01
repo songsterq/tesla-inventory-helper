@@ -8,6 +8,7 @@ import {
   addCar,
   createSavedCar,
   makeSnapshot,
+  parseMileage,
   parsePrice,
   pickBestPrice,
   removeCar,
@@ -33,6 +34,10 @@ const MODEL_SLUG: Record<TeslaModel, string> = {
 };
 
 // ─── BRITTLE: tesla.com DOM scraping. Keep guarded; never throw. ───
+// Gate for scrape diagnostics (mirrors the third-party script's flag). MUST be
+// false in release builds — see AGENTS.md.
+const DEBUG = false;
+
 const PRICE_EXCLUDE = /reduc|save|\boff\b|\bwas\b|\/mo|per month|month|lease|\bdue\b|down/i;
 
 const UNAVAILABLE_MARKERS = [
@@ -70,29 +75,27 @@ const cleanPaintName = (raw: string | null | undefined): string | null => {
 };
 
 function scrapePaintName(root: HTMLElement): string | null {
-  // (a) Details pages: the Capitalized phrase before the word "Paint" (Capitalized
-  // only, so it can't grab the glued mileage/"mi"). First match wins.
-  const named = (root.textContent ?? '').match(
-    /([A-Z][a-z]+(?:[\s-][A-Z][a-z]+){0,3})\s*Paint\b/,
-  );
+  // (a) Order pages: the Capitalized phrase before the word "Paint" ("Stealth Grey
+  // Paint" feature line). innerText, not textContent — textContent glues adjacent
+  // nodes ("…Paint19'' Gemini…") which kills the \b after "Paint". Separators stay
+  // within a line so a preceding unrelated line can't join the capture.
+  const named = (root.innerText ?? '').match(/([A-Z][a-z]+(?:[ -][A-Z][a-z]+){0,3}) ?Paint\b/);
   const fromText = cleanPaintName(named?.[1]);
   if (fromText) return fromText;
-  // (b) Inventory cards (no name in text): the swatch's accessible name — the
-  // previous sibling of the "Paint" leaf label.
-  for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
-    if (el.children.length !== 0 || el.textContent?.trim().toLowerCase() !== 'paint') continue;
-    const swatch = el.previousElementSibling;
-    if (swatch instanceof HTMLElement) {
-      const label =
-        swatch.getAttribute('title') ??
-        swatch.getAttribute('aria-label') ??
-        swatch.querySelector('img')?.getAttribute('alt') ??
-        null;
-      const name = cleanPaintName(label);
-      if (name) return name;
-    }
+  // (b) Inventory cards: no name in visible text — the swatch <img> URL names the
+  // paint asset (…/Paint_StealthGrey.png), and the card's closed tooltip repeats
+  // the same image next to the human-readable name ("Stealth Grey"). The visible
+  // copy's label is literally "Paint", which cleanPaintName rejects, so the loop
+  // lands on the tooltip copy.
+  for (const img of Array.from(root.querySelectorAll<HTMLImageElement>('img[src*="Paint_" i]'))) {
+    const name = cleanPaintName(img.closest('div,li')?.textContent);
+    if (name) return name;
   }
-  return null;
+  // (c) Last resort: derive the name from the swatch filename itself
+  // (Paint_StealthGrey → "Stealth Grey").
+  const src = root.querySelector<HTMLImageElement>('img[src*="Paint_" i]')?.getAttribute('src');
+  const file = src?.match(/Paint_([A-Za-z]+)/i)?.[1];
+  return file ? cleanPaintName(file.replace(/([a-z])([A-Z])/g, '$1 $2')) : null;
 }
 
 function detectUnavailable(): boolean {
@@ -193,6 +196,11 @@ export default defineContentScript({
       vin: string,
       host: HTMLElement,
       urlFor: () => string,
+      // Mileage lives outside the summary container on order pages, so allow a
+      // wider text source than `host`; inventory cards keep their own card text.
+      // innerText, not textContent — textContent glues adjacent nodes ("42,956
+      // miLocated in Renton"), which kills the \b after the unit.
+      mileageText: () => string = () => host.innerText ?? '',
     ): HTMLButtonElement => {
       const btn = document.createElement('button');
       btn.className = 'tih-monitor-btn';
@@ -220,8 +228,25 @@ export default defineContentScript({
         const scraped = scrapePriceIn(host);
         const trim = scrapeTrim(host) ?? driveLabel(info.drivetrain);
         const paintName = scrapePaintName(host);
+        const mileageSrc = mileageText();
+        const mileage = parseMileage(mileageSrc);
+        if (DEBUG) {
+          console.debug('[TIH] mileage scrape', {
+            vin,
+            result: mileage,
+            sample: mileageSrc.replace(/\s+/g, ' ').slice(0, 300),
+          });
+        }
         const snapshot = makeSnapshot(scraped.value, scraped.currency, 'available', Date.now());
-        const result = addCar(cars, createSavedCar(info, urlFor(), snapshot, { trim, paintName }));
+        const result = addCar(
+          cars,
+          createSavedCar(info, urlFor(), snapshot, {
+            trim,
+            paintName,
+            mileage: mileage.value,
+            mileageUnit: mileage.unit,
+          }),
+        );
         if (result.ok) await savedCarsItem.setValue(result.cars);
         await refresh();
       });
@@ -233,10 +258,15 @@ export default defineContentScript({
     // Universal placement: float the button on the host's edge as an absolute
     // overlay (like the .tih-glow label) so it never shifts page content. Used
     // identically for the order-page summary and each inventory card.
-    const attachMonitorButton = (host: HTMLElement, vin: string, urlFor: () => string) => {
+    const attachMonitorButton = (
+      host: HTMLElement,
+      vin: string,
+      urlFor: () => string,
+      mileageText?: () => string,
+    ) => {
       if (host.querySelector('.tih-monitor-btn')) return;
       if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
-      const btn = createMonitorButton(vin, host, urlFor);
+      const btn = createMonitorButton(vin, host, urlFor, mileageText);
       btn.classList.add('tih-monitor-card');
       host.appendChild(btn);
     };
@@ -246,7 +276,9 @@ export default defineContentScript({
       if (!container) return;
       const vin = extractVinFromOrderPath(location.pathname);
       if (!vin) return;
-      attachMonitorButton(container, vin, () => location.href);
+      // Odometer sits in a specs section outside the summary; the order page shows a
+      // single car, so scan the whole page for it.
+      attachMonitorButton(container, vin, () => location.href, () => document.body?.innerText ?? '');
     };
 
     const injectInventoryButtons = () => {

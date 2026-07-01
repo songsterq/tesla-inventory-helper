@@ -10,6 +10,7 @@ import {
   HISTORY_LIMIT,
   makeSnapshot,
   MAX_SAVED_CARS,
+  parseMileage,
   parsePrice,
   pickBestPrice,
   removeCar,
@@ -37,19 +38,25 @@ const snap = (
 ): CarSnapshot => makeSnapshot(price, price === null ? null : 'USD', availability, at);
 
 describe('createSavedCar', () => {
-  it('defaults trim/paintName to null when no details given', () => {
+  it('defaults trim/paintName/mileage to null when no details given', () => {
     const c = car('5YJ3E1EA0PF000001', snap(42990));
     expect(c.trim).toBeNull();
     expect(c.paintName).toBeNull();
+    expect(c.mileage).toBeNull();
+    expect(c.mileageUnit).toBeNull();
   });
 
-  it('stores supplied trim and paint name', () => {
+  it('stores supplied trim, paint name, and mileage', () => {
     const c = createSavedCar(info('5YJ3E1EA0PF000001'), 'https://x', snap(42990), {
       trim: 'Long Range All-Wheel Drive',
       paintName: 'Stealth Grey',
+      mileage: 22945,
+      mileageUnit: 'mi',
     });
     expect(c.trim).toBe('Long Range All-Wheel Drive');
     expect(c.paintName).toBe('Stealth Grey');
+    expect(c.mileage).toBe(22945);
+    expect(c.mileageUnit).toBe('mi');
   });
 });
 
@@ -122,6 +129,124 @@ describe('pickBestPrice', () => {
 
   it('returns null when there is no price', () => {
     expect(pickBestPrice('No price listed')).toEqual({ value: null, currency: null });
+  });
+});
+
+describe('parseMileage', () => {
+  it('reads the odometer from a glued pre-owned blob, not the price or year', () => {
+    // Same concatenated string as the parsePrice bug case: must land on 22,945 mi,
+    // never 39,100 (price) or 2024 (year) — neither of which carries a mi/km unit.
+    expect(parseMileage('$39,1002024 Pre-Owned Vehicle with 22,945 mi')).toEqual({
+      value: 22945,
+      unit: 'mi',
+    });
+  });
+
+  it('prefers the odometer over warranty mileage-coverage figures (order page)', () => {
+    // Real order-page innerText shape: the warranty section says "50,000 miles
+    // mileage coverage", whose "mileage" wording must not read as an odometer label.
+    const text = [
+      'Rear-Wheel Drive',
+      '$31,800',
+      '2024 Pre-Owned Vehicle with 42,956 mi',
+      'VIN 7SAYGDED2RF002920',
+      'Stealth Grey Paint',
+      'Original Basic Vehicle Limited Warranty',
+      'January 2028 / 50,000 miles mileage coverage (whichever comes first)',
+      'Pre-Owned Vehicle Limited Warranty',
+      'Additional 1 year / 10,000 miles (whichever comes first)',
+      'Battery and Drive Unit Limited Warranty',
+      'January 2032 / 100,000 miles mileage coverage (whichever comes first)',
+    ].join('\n');
+    expect(parseMileage(text)).toEqual({ value: 42956, unit: 'mi' });
+  });
+
+  it('returns null on a new car whose only figures are range and warranty coverage', () => {
+    const text = [
+      '279 mi',
+      'Range (est.)',
+      'Basic Vehicle Limited Warranty',
+      '4 years or 50,000 miles, whichever comes first',
+    ].join('\n');
+    expect(parseMileage(text)).toEqual({ value: null, unit: null });
+  });
+
+  it('reads the odometer from an inventory-card blob with an estimated range', () => {
+    const text =
+      'Rear-Wheel Drive\n$31,800\n2024 Pre-Owned Vehicle with 42,956 mi\nLocated in Renton\n232 mi range (est.)';
+    expect(parseMileage(text)).toEqual({ value: 42956, unit: 'mi' });
+  });
+
+  it('parses a bare US mileage', () => {
+    expect(parseMileage('22,945 mi')).toEqual({ value: 22945, unit: 'mi' });
+  });
+
+  it('parses mileage glued to the unit with no space', () => {
+    expect(parseMileage('22,945mi')).toEqual({ value: 22945, unit: 'mi' });
+  });
+
+  it('normalizes an uppercase unit to lowercase', () => {
+    expect(parseMileage('22,945 MI')).toEqual({ value: 22945, unit: 'mi' });
+  });
+
+  it('parses space-grouped kilometres (international)', () => {
+    expect(parseMileage('Used 2023 Model Y with 12 500 km')).toEqual({ value: 12500, unit: 'km' });
+  });
+
+  it('parses EU dot-grouped kilometres', () => {
+    expect(parseMileage('12.500 km')).toEqual({ value: 12500, unit: 'km' });
+  });
+
+  it('parses an ungrouped number', () => {
+    expect(parseMileage('850 mi')).toEqual({ value: 850, unit: 'mi' });
+  });
+
+  it('parses a spelled-out "miles" unit (order-page wording)', () => {
+    expect(parseMileage('22,945 miles')).toEqual({ value: 22945, unit: 'mi' });
+  });
+
+  it('parses spelled-out kilometres, US and intl spelling', () => {
+    expect(parseMileage('22,945 kilometers')).toEqual({ value: 22945, unit: 'km' });
+    expect(parseMileage('22 945 kilometres')).toEqual({ value: 22945, unit: 'km' });
+  });
+
+  it('handles a non-breaking space between number and unit', () => {
+    expect(parseMileage('22,945 mi')).toEqual({ value: 22945, unit: 'mi' });
+  });
+
+  it('prefers an odometer-labelled figure over EV range on the same page', () => {
+    expect(parseMileage('Odometer 22,945 mi · Range (EPA est.) 333 mi')).toEqual({
+      value: 22945,
+      unit: 'mi',
+    });
+  });
+
+  it('ignores a range-only figure with no odometer nearby', () => {
+    expect(parseMileage('Range (EPA est.) 333 mi')).toEqual({ value: null, unit: null });
+  });
+
+  it('returns null on a new listing with a price and year but no odometer', () => {
+    expect(parseMileage('Long Range All-Wheel Drive $47,200 2026 Pre-Owned')).toEqual({
+      value: null,
+      unit: null,
+    });
+  });
+
+  it('skips estimated range and reads the real odometer', () => {
+    expect(parseMileage('Range (EPA est.) 333 mi range with 22,945 mi odometer')).toEqual({
+      value: 22945,
+      unit: 'mi',
+    });
+  });
+
+  it('rejects a zero or absurd reading', () => {
+    expect(parseMileage('0 mi')).toEqual({ value: null, unit: null });
+    expect(parseMileage('600,000 mi')).toEqual({ value: null, unit: null });
+  });
+
+  it('returns null for empty or unit-less text', () => {
+    expect(parseMileage('')).toEqual({ value: null, unit: null });
+    expect(parseMileage('Coming soon')).toEqual({ value: null, unit: null });
   });
 });
 

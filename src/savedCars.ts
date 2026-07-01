@@ -24,6 +24,8 @@ export type SavedCar = {
   likelyHw: string;
   trim: string | null; // variant text, e.g. "Long Range All-Wheel Drive"
   paintName: string | null; // paint name shown in the list, e.g. "Stealth Grey"
+  mileage: number | null; // odometer reading; only used/demo cars have one
+  mileageUnit: 'mi' | 'km' | null; // display unit paired with `mileage`
   savedAt: number;
   baseline: CarSnapshot; // snapshot captured when the car was saved
   latest: CarSnapshot; // most recent observation (== baseline until first check)
@@ -131,6 +133,53 @@ export function pickBestPrice(text: string): { value: number | null; currency: s
   return best ?? { value: null, currency: null };
 }
 
+// Parse an odometer reading out of a Tesla listing blob. Only used/demo cars have
+// one; on the order page we scan the whole page text. Require a distance unit
+// ("mi"/"miles"/"km"/"kilometers") as the anchor — that keeps us off the price
+// ("$39,100") and the model year ("2024"), neither of which carries a unit. The wide
+// scan admits two false candidates, both context-filtered:
+//   - EV *range* figures ("279 mi range", "Range (EPA est.) 333 mi") — skipped when
+//     "range" appears nearby without odometer wording;
+//   - warranty terms ("50,000 miles mileage coverage", "… whichever comes first") —
+//     skipped outright; their "mileage" wording would otherwise read as an odometer
+//     label and beat the real reading.
+// Tesla labels the actual odometer "Pre-Owned/Demo Vehicle with 42,956 mi", so
+// "vehicle with" counts as odometer wording. Returns nulls on new cars / no match;
+// never throws.
+const MILEAGE_RE =
+  /\b(\d{1,3}(?:[.,\s]\d{3})*|\d+)\s*(mi|miles?|km|kilomet(?:er|re)s?)\b/gi;
+const ODOMETER_CONTEXT = /odometer|mileage|miles|driven|vehicle with/i;
+const RANGE_CONTEXT = /range/i;
+const WARRANTY_CONTEXT = /warrant|coverage|whichever/i;
+const CONTEXT_WINDOW = 24;
+
+export function parseMileage(text: string): { value: number | null; unit: 'mi' | 'km' | null } {
+  const src = text ?? '';
+  let fallback: { value: number; unit: 'mi' | 'km' } | null = null;
+  for (const m of src.matchAll(MILEAGE_RE)) {
+    const value = parseInt((m[1] ?? '').replace(/[.,\s]/g, ''), 10);
+    if (!Number.isFinite(value) || value <= 0 || value > 500_000) continue;
+    const unit: 'mi' | 'km' = /^k/i.test(m[2] ?? '') ? 'km' : 'mi';
+
+    const idx = m.index ?? 0;
+    const before = src.slice(Math.max(0, idx - CONTEXT_WINDOW), idx);
+    const after = src.slice(idx + m[0].length, idx + m[0].length + CONTEXT_WINDOW);
+    const window = before + after;
+
+    // Warranty mileage caps are never the odometer.
+    if (WARRANTY_CONTEXT.test(window)) continue;
+    const hasOdometer = ODOMETER_CONTEXT.test(window);
+
+    // A "range" figure with no odometer wording nearby is the EV range, not mileage.
+    if (RANGE_CONTEXT.test(window) && !hasOdometer) continue;
+    // Odometer-labelled match wins immediately; otherwise remember the first plausible
+    // candidate and keep looking for a labelled one.
+    if (hasOdometer) return { value, unit };
+    fallback ??= { value, unit };
+  }
+  return fallback ?? { value: null, unit: null };
+}
+
 export function makeSnapshot(
   price: number | null,
   currency: string | null,
@@ -144,7 +193,12 @@ export function createSavedCar(
   info: TeslaVinInfo,
   url: string,
   snapshot: CarSnapshot,
-  details?: { trim?: string | null; paintName?: string | null },
+  details?: {
+    trim?: string | null;
+    paintName?: string | null;
+    mileage?: number | null;
+    mileageUnit?: 'mi' | 'km' | null;
+  },
 ): SavedCar {
   return {
     vin: info.vin,
@@ -154,6 +208,8 @@ export function createSavedCar(
     likelyHw: info.likelyHw,
     trim: details?.trim ?? null,
     paintName: details?.paintName ?? null,
+    mileage: details?.mileage ?? null,
+    mileageUnit: details?.mileageUnit ?? null,
     savedAt: snapshot.at,
     baseline: snapshot,
     latest: snapshot,
