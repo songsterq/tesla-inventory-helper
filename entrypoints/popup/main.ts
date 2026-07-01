@@ -1,5 +1,10 @@
 import { browser } from 'wxt/browser';
-import { highlightingEnabledItem, rulesItem, savedCarsItem } from '../../src/storage';
+import {
+  autoCheckMinutesItem,
+  highlightingEnabledItem,
+  rulesItem,
+  savedCarsItem,
+} from '../../src/storage';
 import { defaultRules } from '../../src/defaultRules';
 import { evalRules, parseRules } from '../../src/rules';
 import {
@@ -22,6 +27,7 @@ const statusEl = document.getElementById('status') as HTMLParagraphElement;
 const testInput = document.getElementById('test-vin') as HTMLInputElement;
 const testResult = document.getElementById('test-result') as HTMLParagraphElement;
 const checkNowBtn = document.getElementById('check-now') as HTMLButtonElement;
+const autoCheckSelect = document.getElementById('auto-check') as HTMLSelectElement;
 const checkProgress = document.getElementById('check-progress') as HTMLParagraphElement;
 const savedCarsList = document.getElementById('saved-cars') as HTMLUListElement;
 
@@ -37,6 +43,8 @@ async function init() {
   textarea.addEventListener('input', runTest);
   testInput.addEventListener('input', runTest);
   checkNowBtn.addEventListener('click', onCheckNow);
+  autoCheckSelect.value = String(await autoCheckMinutesItem.getValue());
+  autoCheckSelect.addEventListener('change', onAutoCheckChange);
   runTest();
 
   // Watchlist: render, keep it live, and acknowledge changes so the badge clears.
@@ -126,6 +134,20 @@ function flashStatus(message: string) {
 async function onHighlightingEnabledChange() {
   await highlightingEnabledItem.setValue(highlightingEnabledInput.checked);
   flashStatus(highlightingEnabledInput.checked ? 'Highlighting on.' : 'Highlighting off.');
+}
+
+const AUTO_CHECK_LABELS: Record<string, string> = {
+  '0': 'Automatic checks off.',
+  '180': 'Checking automatically every 3 hours.',
+  '360': 'Checking automatically every 6 hours.',
+  '720': 'Checking automatically every 12 hours.',
+  '1440': 'Checking automatically daily.',
+};
+
+async function onAutoCheckChange() {
+  const minutes = Number(autoCheckSelect.value);
+  await autoCheckMinutesItem.setValue(minutes);
+  flashStatus(AUTO_CHECK_LABELS[autoCheckSelect.value] ?? 'Automatic check updated.');
 }
 
 // ─── Watchlist ───

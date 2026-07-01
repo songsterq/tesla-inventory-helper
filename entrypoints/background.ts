@@ -1,6 +1,6 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
-import { savedCarsItem } from '../src/storage';
+import { autoCheckMinutesItem, savedCarsItem } from '../src/storage';
 import {
   applyCheckResult,
   changedCount,
@@ -9,12 +9,14 @@ import {
   type CarSnapshot,
   type SavedCars,
 } from '../src/savedCars';
+import { planAlarm } from '../src/autoCheck';
 import { pollWithTimeout } from '../src/asyncPoll';
 
 const BADGE_COLOR = '#e82127';
 const SCRAPE_INTERVAL_MS = 750;
 const PER_CAR_TIMEOUT_MS = 20_000;
 const KEEPALIVE_MS = 20_000;
+const AUTO_CHECK_ALARM = 'tih:auto-check';
 
 type ScrapeReply = {
   ready: boolean;
@@ -40,6 +42,19 @@ export default defineBackground(() => {
   void savedCarsItem.getValue().then(updateBadge);
   savedCarsItem.watch((cars) => void updateBadge(cars));
 
+  // Reconcile the auto-check alarm on startup and whenever the setting changes.
+  void autoCheckMinutesItem.getValue().then(reconcileAlarm);
+  autoCheckMinutesItem.watch((minutes) => void reconcileAlarm(minutes));
+
+  // Fire an automatic run when the alarm elapses — but never pile onto a run that
+  // is already going, and skip the no-op wake when the watchlist is empty.
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== AUTO_CHECK_ALARM || runState.running) return;
+    void savedCarsItem.getValue().then((cars) => {
+      if (cars.length > 0 && !runState.running) void runCheck();
+    });
+  });
+
   browser.runtime.onMessage.addListener((msg) => {
     const type = (msg as { type?: string } | null)?.type;
     if (type === 'tih:check-now') {
@@ -53,6 +68,17 @@ export default defineBackground(() => {
     return undefined;
   });
 });
+
+// Translate the stored frequency into a chrome.alarms schedule. Off / corrupted
+// values clear the alarm; otherwise a repeating alarm delayed by a full period.
+async function reconcileAlarm(minutes: number): Promise<void> {
+  const plan = planAlarm(minutes);
+  if ('clear' in plan) {
+    await browser.alarms.clear(AUTO_CHECK_ALARM).catch(() => {});
+    return;
+  }
+  browser.alarms.create(AUTO_CHECK_ALARM, plan);
+}
 
 async function updateBadge(cars: SavedCars): Promise<void> {
   const count = changedCount(cars);
