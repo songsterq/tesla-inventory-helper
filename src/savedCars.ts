@@ -134,18 +134,23 @@ export function pickBestPrice(text: string): { value: number | null; currency: s
 }
 
 // Parse an odometer reading out of a Tesla listing blob. Only used/demo cars have
-// one; on the details page it lives in a specs section, so we may scan the whole
-// page text. Require a distance unit ("mi"/"miles"/"km"/"kilometers") as the anchor
-// — that keeps us off the price ("$39,100") and the model year ("2024"), neither of
-// which carries a unit. The wide scan means Tesla's EV *range* (also shown in "mi",
-// e.g. "279 mi range" / "Range (EPA est.) 333 mi") is a false candidate, so we skip
-// any match whose surrounding text says "range" unless it also names the odometer,
-// and prefer a match sitting next to odometer/mileage wording. Returns nulls on new
-// cars / no match; never throws.
+// one; on the order page we scan the whole page text. Require a distance unit
+// ("mi"/"miles"/"km"/"kilometers") as the anchor — that keeps us off the price
+// ("$39,100") and the model year ("2024"), neither of which carries a unit. The wide
+// scan admits two false candidates, both context-filtered:
+//   - EV *range* figures ("279 mi range", "Range (EPA est.) 333 mi") — skipped when
+//     "range" appears nearby without odometer wording;
+//   - warranty terms ("50,000 miles mileage coverage", "… whichever comes first") —
+//     skipped outright; their "mileage" wording would otherwise read as an odometer
+//     label and beat the real reading.
+// Tesla labels the actual odometer "Pre-Owned/Demo Vehicle with 42,956 mi", so
+// "vehicle with" counts as odometer wording. Returns nulls on new cars / no match;
+// never throws.
 const MILEAGE_RE =
   /\b(\d{1,3}(?:[.,\s]\d{3})*|\d+)\s*(mi|miles?|km|kilomet(?:er|re)s?)\b/gi;
-const ODOMETER_CONTEXT = /odometer|mileage|miles|driven/i;
+const ODOMETER_CONTEXT = /odometer|mileage|miles|driven|vehicle with/i;
 const RANGE_CONTEXT = /range/i;
+const WARRANTY_CONTEXT = /warrant|coverage|whichever/i;
 const CONTEXT_WINDOW = 24;
 
 export function parseMileage(text: string): { value: number | null; unit: 'mi' | 'km' | null } {
@@ -160,6 +165,9 @@ export function parseMileage(text: string): { value: number | null; unit: 'mi' |
     const before = src.slice(Math.max(0, idx - CONTEXT_WINDOW), idx);
     const after = src.slice(idx + m[0].length, idx + m[0].length + CONTEXT_WINDOW);
     const window = before + after;
+
+    // Warranty mileage caps are never the odometer.
+    if (WARRANTY_CONTEXT.test(window)) continue;
     const hasOdometer = ODOMETER_CONTEXT.test(window);
 
     // A "range" figure with no odometer wording nearby is the EV range, not mileage.

@@ -142,6 +142,41 @@ describe('parseMileage', () => {
     });
   });
 
+  it('prefers the odometer over warranty mileage-coverage figures (order page)', () => {
+    // Real order-page innerText shape: the warranty section says "50,000 miles
+    // mileage coverage", whose "mileage" wording must not read as an odometer label.
+    const text = [
+      'Rear-Wheel Drive',
+      '$31,800',
+      '2024 Pre-Owned Vehicle with 42,956 mi',
+      'VIN 7SAYGDED2RF002920',
+      'Stealth Grey Paint',
+      'Original Basic Vehicle Limited Warranty',
+      'January 2028 / 50,000 miles mileage coverage (whichever comes first)',
+      'Pre-Owned Vehicle Limited Warranty',
+      'Additional 1 year / 10,000 miles (whichever comes first)',
+      'Battery and Drive Unit Limited Warranty',
+      'January 2032 / 100,000 miles mileage coverage (whichever comes first)',
+    ].join('\n');
+    expect(parseMileage(text)).toEqual({ value: 42956, unit: 'mi' });
+  });
+
+  it('returns null on a new car whose only figures are range and warranty coverage', () => {
+    const text = [
+      '279 mi',
+      'Range (est.)',
+      'Basic Vehicle Limited Warranty',
+      '4 years or 50,000 miles, whichever comes first',
+    ].join('\n');
+    expect(parseMileage(text)).toEqual({ value: null, unit: null });
+  });
+
+  it('reads the odometer from an inventory-card blob with an estimated range', () => {
+    const text =
+      'Rear-Wheel Drive\n$31,800\n2024 Pre-Owned Vehicle with 42,956 mi\nLocated in Renton\n232 mi range (est.)';
+    expect(parseMileage(text)).toEqual({ value: 42956, unit: 'mi' });
+  });
+
   it('parses a bare US mileage', () => {
     expect(parseMileage('22,945 mi')).toEqual({ value: 22945, unit: 'mi' });
   });
