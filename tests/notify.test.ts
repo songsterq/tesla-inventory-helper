@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChangeNotification, type RunChange } from '../src/notify';
+import { buildChangeNotification, toRunChange, type RunChange } from '../src/notify';
 import type { CarSnapshot, SavedCar } from '../src/savedCars';
 
 function snap(overrides: Partial<CarSnapshot> = {}): CarSnapshot {
@@ -88,5 +88,55 @@ describe('buildChangeNotification', () => {
     expect(n!.message).toBe('2024 Model 3 RWD, 2024 Model Y LR');
     expect(n!.contextMessage).toBeUndefined();
     expect(n!.target).toEqual({ kind: 'popup' });
+  });
+});
+
+describe('toRunChange', () => {
+  it('returns a RunChange for a price-drop result, using the existing car latest price', () => {
+    const existing = makeCar({ latest: snap({ price: 46990 }) });
+    const result = makeCar({ lastChange: 'price-drop', latest: snap({ price: 45590 }) });
+
+    const change = toRunChange(existing, result);
+
+    expect(change).toEqual({ car: result, change: 'price-drop', prevPrice: 46990 });
+  });
+
+  it('returns a RunChange for a fresh transition to gone (existing was available)', () => {
+    const existing = makeCar({ latest: snap({ availability: 'available' }) });
+    const result = makeCar({ lastChange: 'gone', latest: snap({ availability: 'unavailable' }) });
+
+    const change = toRunChange(existing, result);
+
+    expect(change).toEqual({ car: result, change: 'gone', prevPrice: existing.latest.price });
+  });
+
+  it('returns null for sticky gone (existing already unavailable)', () => {
+    const existing = makeCar({ latest: snap({ availability: 'unavailable' }) });
+    const result = makeCar({ lastChange: 'gone', latest: snap({ availability: 'unavailable' }) });
+
+    expect(toRunChange(existing, result)).toBeNull();
+  });
+
+  it('returns a RunChange for a newly confirmed sold car (existing was unknown)', () => {
+    const existing = makeCar({ latest: snap({ availability: 'unknown' }) });
+    const result = makeCar({ lastChange: 'gone', latest: snap({ availability: 'unavailable' }) });
+
+    const change = toRunChange(existing, result);
+
+    expect(change).toEqual({ car: result, change: 'gone', prevPrice: existing.latest.price });
+  });
+
+  it('returns null when lastChange is none', () => {
+    const existing = makeCar();
+    const result = makeCar({ lastChange: 'none' });
+
+    expect(toRunChange(existing, result)).toBeNull();
+  });
+
+  it('returns null when lastChange is price-rise', () => {
+    const existing = makeCar({ latest: snap({ price: 40000 }) });
+    const result = makeCar({ lastChange: 'price-rise', latest: snap({ price: 41000 }) });
+
+    expect(toRunChange(existing, result)).toBeNull();
   });
 });

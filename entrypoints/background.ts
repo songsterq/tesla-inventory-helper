@@ -11,7 +11,7 @@ import {
 } from '../src/savedCars';
 import { planAlarm } from '../src/autoCheck';
 import { pollWithTimeout } from '../src/asyncPoll';
-import { buildChangeNotification, type ChangeNotification, type RunChange } from '../src/notify';
+import { buildChangeNotification, toRunChange, type ChangeNotification, type RunChange } from '../src/notify';
 
 const BADGE_COLOR = '#e82127';
 const SCRAPE_INTERVAL_MS = 750;
@@ -130,9 +130,8 @@ async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
         const updated = [...current];
         updated[idx] = result;
         await savedCarsItem.setValue(updated);
-        if (result.lastChange === 'price-drop' || result.lastChange === 'gone') {
-          changes.push({ car: result, change: result.lastChange, prevPrice: existing.latest.price });
-        }
+        const runChange = toRunChange(existing, result);
+        if (runChange) changes.push(runChange);
       }
       runState.done++;
     }

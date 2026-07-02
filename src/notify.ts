@@ -54,3 +54,18 @@ export function buildChangeNotification(changes: RunChange[]): ChangeNotificatio
     target: { kind: 'popup' },
   };
 }
+
+// Decide whether a checked car's result is a change worth notifying about THIS
+// run, and package it as a RunChange. Returns null when there is nothing new to
+// announce. Price drops are inherently per-run (a stable price diffs to 'none').
+// 'gone', however, is sticky — diffSnapshot reports 'gone' on every run while a
+// car stays unavailable — so only a fresh transition into unavailable notifies.
+export function toRunChange(existing: SavedCar, result: SavedCar): RunChange | null {
+  if (result.lastChange === 'price-drop') {
+    return { car: result, change: 'price-drop', prevPrice: existing.latest.price };
+  }
+  if (result.lastChange === 'gone' && existing.latest.availability !== 'unavailable') {
+    return { car: result, change: 'gone', prevPrice: existing.latest.price };
+  }
+  return null;
+}
