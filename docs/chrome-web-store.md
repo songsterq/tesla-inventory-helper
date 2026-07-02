@@ -62,6 +62,14 @@ The justification form is reviewer-only, so it's safe to list specific hosts her
 
 > The extension lets the user save specific car listings to a watchlist and check them for price or availability changes. To perform a check, the background service worker opens each saved car's own listing URL in an inactive background tab, reads the current price and availability from that page via a content-script message, and immediately closes the tab. The `tabs` permission is required to open these background tabs (`tabs.create`), message the content script running in them (`tabs.sendMessage`), and close them when the check finishes (`tabs.remove`). Tabs are only ever opened to URLs the user themselves saved, and are closed as soon as the page has been read. No browsing history or data from the user's other tabs is accessed.
 
+### `alarms`
+
+> The extension offers an optional automatic re-check of the user's saved-car watchlist at a frequency the user chooses from the toolbar popup (Off / every 3, 6, or 12 hours / daily). It uses `chrome.alarms` to schedule one repeating alarm that wakes the background service worker at that interval to run the check. This permission is required because a Manifest V3 service worker is not persistent and cannot rely on `setInterval`/`setTimeout` for scheduled work — `chrome.alarms` is Chrome's supported mechanism for periodic background tasks. A single alarm is created, and it is cleared entirely when the user selects "Off". No alarm data leaves the browser.
+
+### `notifications`
+
+> When an automatic (scheduled) watchlist check detects an actionable change — a saved car's price dropping, or the car becoming unavailable/sold — the extension shows a single system notification via `chrome.notifications` so the user is informed without having to open the popup. This fires only for the user's own saved cars and only on scheduled checks; a manual "Check now" never produces a notification. Clicking the notification opens the relevant listing (single car) or the watchlist (multiple). Notification content is generated entirely locally from data already read during the check and is never transmitted anywhere.
+
 ### Host permissions
 
 > The extension reads page content on a fixed set of car-shopping sites in order to detect Tesla VINs and either highlight matching cars (on Tesla.com) or show a small VIN-decoder popover (on third-party listing sites). No network requests are made to these hosts; the extension only inspects the DOM in the user's own browser.
@@ -83,6 +91,7 @@ Source PNGs go in `~/Desktop/tih/`. Run `node scripts/build-screenshots.mjs` and
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.1.2 | 2026-07-01 | Automatic periodic watchlist checks (adds `alarms`) and desktop notifications on scheduled price-drop/sold changes (adds `notifications`); sold used cars detected via order-page redirect to inventory |
 | 1.1.0 | 2026-06-29 | Save & monitor watchlist: track saved cars for price/availability changes (adds `tabs` permission); enriched saved-car rows with price, trim, and paint color |
 | 1.0.2 | 2026-05-11 | VIN decoder popover on third-party sites, Tesla.com worldwide, `in` operator in rules engine, tightened defaults |
 | 1.0.1 | (pre) | Popup layout tightening, rating prompt, screenshot script, highlighting toggle |
