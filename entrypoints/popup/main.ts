@@ -11,10 +11,10 @@ import {
   acknowledgeAll,
   changedCount,
   removeCar,
-  type CarSnapshot,
   type SavedCar,
   type SavedCars,
 } from '../../src/savedCars';
+import { formatCarName, formatCarSubLine, formatPrice, priceSymbol } from '../../src/format';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const highlightingEnabledInput = document.getElementById(
@@ -176,17 +176,12 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   title.href = car.url;
   title.target = '_blank';
   title.rel = 'noopener noreferrer';
-  title.textContent = [car.modelYear, car.model, car.trim].filter(Boolean).join(' ') || car.vin;
+  title.textContent = formatCarName(car);
   info.append(title);
 
   const sub = document.createElement('span');
   sub.className = 'saved-car-sub';
-  const parts = [car.paintName];
-  if (car.mileage && car.mileageUnit) {
-    parts.push(`${car.mileage.toLocaleString()} ${car.mileageUnit}`);
-  }
-  parts.push(car.likelyHw);
-  sub.textContent = parts.filter(Boolean).join(' · ');
+  sub.textContent = formatCarSubLine(car);
   info.append(sub);
 
   const priceBlock = document.createElement('div');
@@ -213,28 +208,6 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
 
   li.append(info, priceBlock, remove);
   return li;
-}
-
-const CURRENCY_SYMBOL: Record<string, string> = {
-  USD: '$',
-  CAD: 'CA$',
-  EUR: '€',
-  GBP: '£',
-  CNY: '¥',
-  JPY: '¥',
-  AUD: 'A$',
-  HKD: 'HK$',
-  CHF: 'CHF ',
-  AED: 'AED ',
-  KRW: '₩',
-};
-
-const priceSymbol = (currency: string | null): string =>
-  currency ? (CURRENCY_SYMBOL[currency] ?? '') : '';
-
-function formatPrice(s: CarSnapshot): string {
-  if (s.price === null) return '—';
-  return `${priceSymbol(s.currency)}${s.price.toLocaleString()}`;
 }
 
 // The compact second line under the price: a signed delta, "Sold", or a muted
