@@ -62,6 +62,20 @@ Condition types:
 
 Supports both US (`/inventory/...`, `/<model>/order/<VIN>`) and locale-prefixed international (`/<locale>/inventory/...`, `/<locale>/my/order/<VIN>`) URLs. The `apply()` router uses regexes (not `startsWith`) to handle both.
 
+## Watchlist auto-checks
+
+The popup watchlist lets users save cars (`savedCarsItem`, `local` storage) and re-checks their price/availability. The frequency dropdown (`autoCheckMinutesItem`) drives a `chrome.alarms` schedule; the background worker opens each saved car in a background tab, scrapes it, and diffs against the last snapshot. Two run sources: `'manual'` ("Check now") and `'alarm'` (scheduled). **Only `'alarm'` runs fire `chrome.notifications`** — a price drop or a car going sold. A car that stays sold does not re-notify (`toRunChange` requires a fresh transition).
+
+Sold **used** cars are detected via redirect: their order page bounces to an `/inventory/` listing, which `isSoldRedirect` (`src/vin.ts`) reads as `unavailable`. A non-inventory redirect (login/error) stays `unknown` — never a fabricated `gone`.
+
+**Trigger a scheduled check on demand** (to test notifications without waiting for the alarm): open the background worker's DevTools (`chrome://extensions` → Developer mode → the extension's **service worker** link) and run:
+
+```js
+chrome.alarms.create('tih:auto-check', { when: Date.now() + 500 })
+```
+
+This runs the exact `onAlarm` path (`runCheck('alarm')`), so notifications are enabled. Gotchas: Chrome clamps short alarm delays to ~30s on packed builds; the run needs a non-empty watchlist and no run already in progress; and a car only notifies if it *changes during that run* (an already-sold car won't re-notify by design).
+
 ## Release process
 
 1. Bump `version` in `package.json`. Commit style: `Bump version to X.Y.Z`.
