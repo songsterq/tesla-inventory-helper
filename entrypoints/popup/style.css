@@ -271,9 +271,25 @@ button.link:hover {
   font-weight: 600;
 }
 
+.monitor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 #check-now {
   padding: 5px 12px;
   font-size: 12px;
+}
+
+.auto-check {
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 #check-now:disabled {
