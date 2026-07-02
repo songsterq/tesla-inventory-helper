@@ -11,6 +11,7 @@ import {
 } from '../src/savedCars';
 import { planAlarm } from '../src/autoCheck';
 import { pollWithTimeout } from '../src/asyncPoll';
+import { buildChangeNotification, type ChangeNotification, type RunChange } from '../src/notify';
 
 const BADGE_COLOR = '#e82127';
 const SCRAPE_INTERVAL_MS = 750;
@@ -51,15 +52,17 @@ export default defineBackground(() => {
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== AUTO_CHECK_ALARM || runState.running) return;
     void savedCarsItem.getValue().then((cars) => {
-      if (cars.length > 0 && !runState.running) void runCheck();
+      if (cars.length > 0 && !runState.running) void runCheck('alarm');
     });
   });
+
+  browser.notifications.onClicked.addListener((id) => void handleNotificationClick(id));
 
   browser.runtime.onMessage.addListener((msg) => {
     const type = (msg as { type?: string } | null)?.type;
     if (type === 'tih:check-now') {
       if (runState.running) return Promise.resolve({ started: false, reason: 'busy' });
-      void runCheck();
+      void runCheck('manual');
       return Promise.resolve({ started: true });
     }
     if (type === 'tih:check-progress') {
@@ -87,12 +90,13 @@ async function updateBadge(cars: SavedCars): Promise<void> {
 
 // Open each saved car in a background tab, scrape it, diff vs the snapshot, and
 // persist after every car so progress survives a mid-run worker termination.
-async function runCheck(): Promise<void> {
+async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
   runState.running = true;
   runState.done = 0;
   runState.currentVin = null;
   const keepAlive = setInterval(() => void browser.runtime.getPlatformInfo().catch(() => {}), KEEPALIVE_MS);
   const openTabs = new Set<number>();
+  const changes: RunChange[] = [];
 
   try {
     const cars = await savedCarsItem.getValue();
@@ -122,12 +126,18 @@ async function runCheck(): Promise<void> {
       const idx = current.findIndex((c) => c.vin === car.vin);
       const existing = idx >= 0 ? current[idx] : undefined;
       if (existing) {
+        const result = applyCheckResult(existing, snapshot);
         const updated = [...current];
-        updated[idx] = applyCheckResult(existing, snapshot);
+        updated[idx] = result;
         await savedCarsItem.setValue(updated);
+        if (result.lastChange === 'price-drop' || result.lastChange === 'gone') {
+          changes.push({ car: result, change: result.lastChange, prevPrice: existing.latest.price });
+        }
       }
       runState.done++;
     }
+
+    if (source === 'alarm') await notifyChanges(changes);
   } finally {
     for (const id of openTabs) await browser.tabs.remove(id).catch(() => {});
     clearInterval(keepAlive);
@@ -135,6 +145,47 @@ async function runCheck(): Promise<void> {
     runState.currentVin = null;
     await updateBadge(await savedCarsItem.getValue());
   }
+}
+
+// Best-effort OS notification summarizing an alarm run's changes. A failure here
+// must never break the run, so every browser call is guarded.
+async function notifyChanges(changes: RunChange[]): Promise<void> {
+  const n: ChangeNotification | null = buildChangeNotification(changes);
+  if (!n) return;
+  await browser.notifications
+    .create(n.id, {
+      type: 'basic',
+      iconUrl: browser.runtime.getURL('/icon/128.png'),
+      title: n.title,
+      message: n.message,
+      ...(n.contextMessage ? { contextMessage: n.contextMessage } : {}),
+    })
+    .catch(() => {});
+}
+
+// Route a notification click. Single-car ids deep-link to the listing (or the
+// watchlist if the car was removed since); the summary opens the watchlist.
+async function handleNotificationClick(id: string): Promise<void> {
+  await browser.notifications.clear(id).catch(() => {});
+  const CAR_PREFIX = 'tih:car:';
+  if (id.startsWith(CAR_PREFIX)) {
+    const vin = id.slice(CAR_PREFIX.length);
+    const cars = await savedCarsItem.getValue();
+    const car = cars.find((c) => c.vin === vin);
+    if (car) {
+      await browser.tabs.create({ url: car.url }).catch(() => {});
+      return;
+    }
+  }
+  await openWatchlistWindow();
+}
+
+// Open the popup page as a small standalone window. Its init() runs
+// acknowledgeAll, which clears the badge — same "seen" semantics as the popup.
+async function openWatchlistWindow(): Promise<void> {
+  await browser.windows
+    .create({ url: browser.runtime.getURL('/popup.html'), type: 'popup', width: 420, height: 640 })
+    .catch(() => {});
 }
 
 async function checkOneCar(tabId: number | undefined): Promise<CarSnapshot> {
