@@ -10,6 +10,7 @@ import {
   type SavedCars,
 } from '../src/savedCars';
 import { planAlarm } from '../src/autoCheck';
+import { isSoldRedirect } from '../src/vin';
 import { pollWithTimeout } from '../src/asyncPoll';
 import { buildChangeNotification, toRunChange, type ChangeNotification, type RunChange } from '../src/notify';
 
@@ -110,7 +111,7 @@ async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
         const tab = await browser.tabs.create({ url: car.url, active: false });
         tabId = tab.id;
         if (tabId !== undefined) openTabs.add(tabId);
-        snapshot = await checkOneCar(tabId);
+        snapshot = await checkOneCar(tabId, car.vin);
       } catch {
         // Any failure (tab error, port closed) → 'unknown' so we never fabricate a change.
         snapshot = makeSnapshot(null, null, 'unknown', Date.now());
@@ -187,11 +188,18 @@ async function openWatchlistWindow(): Promise<void> {
     .catch(() => {});
 }
 
-async function checkOneCar(tabId: number | undefined): Promise<CarSnapshot> {
+async function checkOneCar(tabId: number | undefined, expectedVin: string): Promise<CarSnapshot> {
   if (tabId === undefined) return makeSnapshot(null, null, 'unknown', Date.now());
 
-  const result = await pollWithTimeout<ScrapeReply>(
+  const result = await pollWithTimeout<ScrapeReply | { sold: true }>(
     async () => {
+      // A sold used car's order page redirects to the inventory listing. Detect
+      // that as unavailable — otherwise the scrape runs against the wrong page,
+      // never reports ready, and times out into a spurious 'unknown'.
+      const tab = await browser.tabs.get(tabId).catch(() => null);
+      if (tab?.status === 'complete' && tab.url && isSoldRedirect(tab.url, expectedVin)) {
+        return { sold: true };
+      }
       const reply = (await browser.tabs
         .sendMessage(tabId, { type: 'tih:scrape' })
         .catch(() => null)) as ScrapeReply | null;
@@ -201,6 +209,7 @@ async function checkOneCar(tabId: number | undefined): Promise<CarSnapshot> {
   );
 
   if (!result) return makeSnapshot(null, null, 'unknown', Date.now());
+  if ('sold' in result) return makeSnapshot(null, null, 'unavailable', Date.now());
   const availability: CarAvailability = result.available ? 'available' : 'unavailable';
   return makeSnapshot(result.price ?? null, result.currency ?? null, availability, Date.now());
 }
