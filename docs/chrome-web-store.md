@@ -64,7 +64,7 @@ The justification form is reviewer-only, so it's safe to list specific hosts her
 
 ### `alarms`
 
-> The extension offers an optional automatic re-check of the user's saved-car watchlist at a frequency the user chooses from the toolbar popup (Off / every 3, 6, or 12 hours / daily). It uses `chrome.alarms` to schedule one repeating alarm that wakes the background service worker at that interval to run the check. This permission is required because a Manifest V3 service worker is not persistent and cannot rely on `setInterval`/`setTimeout` for scheduled work — `chrome.alarms` is Chrome's supported mechanism for periodic background tasks. A single alarm is created, and it is cleared entirely when the user selects "Off". No alarm data leaves the browser.
+> The extension offers an optional automatic re-check of the user's saved-car watchlist at a frequency the user chooses from the toolbar popup (Off / every 3, 6, or 12 hours / daily), optionally anchored to a time of day the user also picks (e.g. 9 AM). It uses `chrome.alarms` to schedule one repeating alarm that wakes the background service worker at that interval — with its first fire aligned to the chosen time of day — to run the check. This permission is required because a Manifest V3 service worker is not persistent and cannot rely on `setInterval`/`setTimeout` for scheduled work — `chrome.alarms` is Chrome's supported mechanism for periodic background tasks. A single alarm is created, and it is cleared entirely when the user selects "Off". No alarm data leaves the browser.
 
 ### `notifications`
 
@@ -91,6 +91,7 @@ Source PNGs go in `~/Desktop/tih/`. Run `node scripts/build-screenshots.mjs` and
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.1.3 | 2026-07-12 | Watchlist auto-checks can be anchored to a time of day (e.g. 9 AM); no new permissions. Popup "Check now" button relabeled "Check" |
 | 1.1.2 | 2026-07-01 | Automatic periodic watchlist checks (adds `alarms`) and desktop notifications on scheduled price-drop/sold changes (adds `notifications`); sold used cars detected via order-page redirect to inventory |
 | 1.1.0 | 2026-06-29 | Save & monitor watchlist: track saved cars for price/availability changes (adds `tabs` permission); enriched saved-car rows with price, trim, and paint color |
 | 1.0.2 | 2026-05-11 | VIN decoder popover on third-party sites, Tesla.com worldwide, `in` operator in rules engine, tightened defaults |
