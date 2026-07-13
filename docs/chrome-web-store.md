@@ -68,7 +68,7 @@ The justification form is reviewer-only, so it's safe to list specific hosts her
 
 ### `notifications`
 
-> When an automatic (scheduled) watchlist check detects an actionable change — a saved car's price dropping, or the car becoming unavailable/sold — the extension shows a single system notification via `chrome.notifications` so the user is informed without having to open the popup. This fires only for the user's own saved cars and only on scheduled checks; a manual "Check now" never produces a notification. Clicking the notification opens the relevant listing (single car) or the watchlist (multiple). Notification content is generated entirely locally from data already read during the check and is never transmitted anywhere.
+> When an automatic (scheduled) watchlist check detects an actionable change — a saved car's price dropping, or the car becoming unavailable/sold — the extension shows a single system notification via `chrome.notifications` so the user is informed without having to open the popup. This fires only for the user's own saved cars and only on scheduled checks; a manual "Check" never produces a notification. Clicking the notification opens the relevant listing (single car) or the watchlist (multiple). Notification content is generated entirely locally from data already read during the check and is never transmitted anywhere.
 
 ### Host permissions
 
