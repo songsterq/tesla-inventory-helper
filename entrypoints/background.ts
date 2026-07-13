@@ -1,6 +1,6 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
-import { autoCheckMinutesItem, savedCarsItem } from '../src/storage';
+import { autoCheckHourItem, autoCheckMinutesItem, savedCarsItem } from '../src/storage';
 import {
   applyCheckResult,
   changedCount,
@@ -44,9 +44,19 @@ export default defineBackground(() => {
   void savedCarsItem.getValue().then(updateBadge);
   savedCarsItem.watch((cars) => void updateBadge(cars));
 
-  // Reconcile the auto-check alarm on startup and whenever the setting changes.
-  void autoCheckMinutesItem.getValue().then(reconcileAlarm);
-  autoCheckMinutesItem.watch((minutes) => void reconcileAlarm(minutes));
+  // Reconcile the auto-check alarm on startup and whenever either the frequency
+  // or the anchor hour changes. Both are inputs to the same schedule, so a change
+  // to either re-derives the alarm from the latest stored values.
+  void reconcileAlarm();
+  autoCheckMinutesItem.watch(() => void reconcileAlarm());
+  autoCheckHourItem.watch(() => void reconcileAlarm());
+
+  // Reconcile on install/update too. Users upgrading from a pre-anchor build have
+  // no stored hour (so it defaults to 9AM) but still hold an alarm the old code
+  // created at an arbitrary wall-clock time. onInstalled is the one event Chrome
+  // guarantees fires on update — it forces the worker to start and re-anchor the
+  // schedule to 9AM promptly, rather than waiting for the next incidental wake.
+  browser.runtime.onInstalled.addListener(() => void reconcileAlarm());
 
   // Fire an automatic run when the alarm elapses — but never pile onto a run that
   // is already going, and skip the no-op wake when the watchlist is empty.
@@ -73,10 +83,19 @@ export default defineBackground(() => {
   });
 });
 
-// Translate the stored frequency into a chrome.alarms schedule. Off / corrupted
-// values clear the alarm; otherwise a repeating alarm delayed by a full period.
-async function reconcileAlarm(minutes: number): Promise<void> {
-  const plan = planAlarm(minutes);
+// Translate the stored frequency + anchor hour into a chrome.alarms schedule.
+// Off / corrupted values clear the alarm; otherwise a repeating alarm whose
+// first fire lands on the next anchor-aligned slot. The current local
+// minute-of-day is computed here (planAlarm stays pure) so the anchor is
+// interpreted in the user's timezone.
+async function reconcileAlarm(): Promise<void> {
+  const [minutes, hour] = await Promise.all([
+    autoCheckMinutesItem.getValue(),
+    autoCheckHourItem.getValue(),
+  ]);
+  const now = new Date();
+  const nowMinuteOfDay = now.getHours() * 60 + now.getMinutes();
+  const plan = planAlarm(minutes, hour, nowMinuteOfDay);
   if ('clear' in plan) {
     await browser.alarms.clear(AUTO_CHECK_ALARM).catch(() => {});
     return;

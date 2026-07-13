@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import {
+  autoCheckHourItem,
   autoCheckMinutesItem,
   highlightingEnabledItem,
   rulesItem,
@@ -28,6 +29,7 @@ const testInput = document.getElementById('test-vin') as HTMLInputElement;
 const testResult = document.getElementById('test-result') as HTMLParagraphElement;
 const checkNowBtn = document.getElementById('check-now') as HTMLButtonElement;
 const autoCheckSelect = document.getElementById('auto-check') as HTMLSelectElement;
+const autoCheckTimeSelect = document.getElementById('auto-check-time') as HTMLSelectElement;
 const checkProgress = document.getElementById('check-progress') as HTMLParagraphElement;
 const savedCarsList = document.getElementById('saved-cars') as HTMLUListElement;
 
@@ -44,7 +46,10 @@ async function init() {
   testInput.addEventListener('input', runTest);
   checkNowBtn.addEventListener('click', onCheckNow);
   autoCheckSelect.value = String(await autoCheckMinutesItem.getValue());
+  autoCheckTimeSelect.value = String(await autoCheckHourItem.getValue());
+  syncTimeVisibility();
   autoCheckSelect.addEventListener('change', onAutoCheckChange);
+  autoCheckTimeSelect.addEventListener('change', onAutoCheckTimeChange);
   runTest();
 
   // Watchlist: render, keep it live, and acknowledge changes so the badge clears.
@@ -136,18 +141,48 @@ async function onHighlightingEnabledChange() {
   flashStatus(highlightingEnabledInput.checked ? 'Highlighting on.' : 'Highlighting off.');
 }
 
-const AUTO_CHECK_LABELS: Record<string, string> = {
-  '0': 'Automatic checks off.',
-  '180': 'Checking automatically every 3 hours.',
-  '360': 'Checking automatically every 6 hours.',
-  '720': 'Checking automatically every 12 hours.',
-  '1440': 'Checking automatically daily.',
+// The frequency clause of the status line, keyed by the stored minutes. The
+// time-of-day clause is appended separately by autoCheckStatus.
+const AUTO_CHECK_CADENCE: Record<string, string> = {
+  '180': 'every 3 hours',
+  '360': 'every 6 hours',
+  '720': 'every 12 hours',
+  '1440': 'daily',
 };
+
+// Format an anchor hour (0–23) as a friendly 12-hour label, e.g. 9 → "9 AM".
+function formatHour(hour: number): string {
+  const period = hour < 12 ? 'AM' : 'PM';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12} ${period}`;
+}
+
+// The status flashed when either dropdown changes. Off ignores the time; a daily
+// check reads "…daily at 9 AM"; sub-daily reads "…every 6 hours from 9 AM".
+function autoCheckStatus(minutes: number, hour: number): string {
+  if (minutes <= 0) return 'Automatic checks off.';
+  const cadence = AUTO_CHECK_CADENCE[String(minutes)];
+  if (!cadence) return 'Automatic check updated.';
+  const at = minutes === 1440 ? 'at' : 'from';
+  return `Checking automatically ${cadence} ${at} ${formatHour(hour)}.`;
+}
+
+// The time dropdown is meaningless when checks are off, so hide it there.
+function syncTimeVisibility() {
+  autoCheckTimeSelect.hidden = autoCheckSelect.value === '0';
+}
 
 async function onAutoCheckChange() {
   const minutes = Number(autoCheckSelect.value);
   await autoCheckMinutesItem.setValue(minutes);
-  flashStatus(AUTO_CHECK_LABELS[autoCheckSelect.value] ?? 'Automatic check updated.');
+  syncTimeVisibility();
+  flashStatus(autoCheckStatus(minutes, Number(autoCheckTimeSelect.value)));
+}
+
+async function onAutoCheckTimeChange() {
+  const hour = Number(autoCheckTimeSelect.value);
+  await autoCheckHourItem.setValue(hour);
+  flashStatus(autoCheckStatus(Number(autoCheckSelect.value), hour));
 }
 
 // ─── Watchlist ───

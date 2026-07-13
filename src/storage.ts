@@ -2,7 +2,7 @@ import { storage } from 'wxt/utils/storage';
 import type { Rules } from './rules';
 import type { SavedCars } from './savedCars';
 import { defaultRules } from './defaultRules';
-import { DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck';
+import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck';
 
 export const rulesItem = storage.defineItem<Rules>('sync:rules', {
   fallback: defaultRules,
@@ -17,6 +17,14 @@ export const highlightingEnabledItem = storage.defineItem<boolean>('sync:highlig
 // a chrome.alarms schedule; see src/autoCheck.ts.
 export const autoCheckMinutesItem = storage.defineItem<number>('sync:autoCheckMinutes', {
   fallback: DEFAULT_AUTO_CHECK_MINUTES,
+});
+
+// Local-time hour (0–23) the automatic checks anchor to — the "9AM" in the
+// popup's time dropdown. Roams with the frequency, so it lives in `sync`. The
+// background worker feeds it to planAlarm to phase-align the chrome.alarms
+// schedule; see src/autoCheck.ts.
+export const autoCheckHourItem = storage.defineItem<number>('sync:autoCheckHour', {
+  fallback: DEFAULT_AUTO_CHECK_HOUR,
 });
 
 // The watchlist lives in `local`, not `sync`, on purpose: chrome.storage.sync
