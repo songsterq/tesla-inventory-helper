@@ -15,7 +15,14 @@ import {
   type SavedCar,
   type SavedCars,
 } from '../../src/savedCars';
-import { formatCarName, formatCarSubLine, formatPrice, priceSymbol } from '../../src/format';
+import {
+  formatCarName,
+  formatCarSubLine,
+  formatHistoryTime,
+  formatHistoryValue,
+  formatPrice,
+  priceSymbol,
+} from '../../src/format';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const highlightingEnabledInput = document.getElementById(
@@ -241,7 +248,53 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
     await savedCarsItem.setValue(removeCar(cars, car.vin));
   });
 
-  li.append(info, priceBlock, remove);
+  const row = document.createElement('div');
+  row.className = 'saved-car-row';
+  row.append(info, priceBlock, remove);
+  li.append(row);
+
+  // Timeline panel: only worth showing once a change has been recorded beyond
+  // the save-time baseline (history.length >= 2).
+  if (car.history.length >= 2) {
+    const panelId = `history-${car.vin}`;
+
+    const toggle = document.createElement('button');
+    toggle.className = 'saved-car-toggle';
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', panelId);
+    toggle.setAttribute('aria-label', `Show price history for ${formatCarName(car)}`);
+    toggle.textContent = '▸';
+
+    const panel = document.createElement('ul');
+    panel.className = 'saved-car-history';
+    panel.id = panelId;
+    panel.hidden = true;
+    for (const s of car.history) {
+      const line = document.createElement('li');
+      line.className = 'saved-car-history-line';
+      const time = document.createElement('span');
+      time.className = 'history-time';
+      time.textContent = formatHistoryTime(s.at);
+      const value = document.createElement('span');
+      value.className = 'history-value';
+      value.textContent = formatHistoryValue(s);
+      line.append(time, value);
+      panel.append(line);
+    }
+
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!open));
+      toggle.textContent = open ? '▸' : '▾';
+      panel.hidden = open;
+    });
+
+    // Leading chevron sits at the start of the row.
+    row.prepend(toggle);
+    li.append(panel);
+  }
+
   return li;
 }
 

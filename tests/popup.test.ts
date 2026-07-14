@@ -78,3 +78,20 @@ describe('popup support links', () => {
     expect(html).toContain('>Order Tesla</span>');
   });
 });
+
+describe('popup price-history panel', () => {
+  it('styles the history toggle and panel', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+    expect(css).toContain('.saved-car-row');
+    expect(css).toContain('.saved-car-toggle');
+    expect(css).toContain('.saved-car-history');
+    expect(css).toContain('.saved-car-history-line');
+  });
+
+  it('adds no new full-strength divider border for the panel', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+    // Still exactly one border-top divider (the footer) after this feature.
+    const borderTopMatches = css.match(/border-top: 1px solid var\(--border\);/g) ?? [];
+    expect(borderTopMatches.length).toBe(1);
+  });
+});

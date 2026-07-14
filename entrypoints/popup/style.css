@@ -327,11 +327,56 @@ button.link:hover {
 
 .saved-car {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--hover-bg);
+}
+
+.saved-car-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saved-car-toggle {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 400;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.saved-car-toggle:hover {
+  color: var(--fg);
+  filter: none;
+}
+
+.saved-car-history {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 6px 2px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.saved-car-history-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.saved-car-history-line .history-value {
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
 }
 
 .saved-car-info {
