@@ -273,6 +273,15 @@ export function applyCheckResult(car: SavedCar, snapshot: CarSnapshot): SavedCar
   };
 }
 
+// The subset of history worth showing in the price-history panel: real
+// observations only. 'unknown' snapshots (failed scrapes) carry no price and
+// are not meaningful timeline points. appendHistory keeps new ones out, but
+// data saved before that guard shipped can still contain them, so filter
+// defensively at read time too — otherwise they render as a bare "—".
+export function displayableHistory(history: CarSnapshot[]): CarSnapshot[] {
+  return history.filter((s) => s.availability !== 'unknown');
+}
+
 // Number of cars with an unacknowledged change — the toolbar badge value.
 export function changedCount(cars: SavedCars): number {
   return cars.filter((c) => c.lastChange !== 'none' && !c.acknowledged).length;

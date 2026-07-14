@@ -11,6 +11,7 @@ import { evalRules, parseRules } from '../../src/rules';
 import {
   acknowledgeAll,
   changedCount,
+  displayableHistory,
   removeCar,
   type SavedCar,
   type SavedCars,
@@ -262,8 +263,10 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   li.append(row);
 
   // Timeline panel: only worth showing once a change has been recorded beyond
-  // the save-time baseline (history.length >= 2).
-  if (car.history.length >= 2) {
+  // the save-time baseline — i.e. at least two real observations. Failed-scrape
+  // ('unknown') snapshots are filtered out so they don't appear as a bare "—".
+  const timeline = displayableHistory(car.history);
+  if (timeline.length >= 2) {
     const panelId = `history-${car.vin}`;
 
     const carName = formatCarName(car);
@@ -280,7 +283,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
     panel.className = 'saved-car-history';
     panel.id = panelId;
     panel.hidden = true;
-    for (const s of car.history) {
+    for (const s of timeline) {
       const line = document.createElement('li');
       line.className = 'saved-car-history-line';
       const time = document.createElement('span');

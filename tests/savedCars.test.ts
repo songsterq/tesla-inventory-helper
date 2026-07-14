@@ -7,6 +7,7 @@ import {
   changedCount,
   createSavedCar,
   diffSnapshot,
+  displayableHistory,
   HISTORY_LIMIT,
   makeSnapshot,
   MAX_SAVED_CARS,
@@ -325,6 +326,18 @@ describe('applyCheckResult', () => {
     c = applyCheckResult(c, snap(41990, 'available', 300));
     expect(c.history).toHaveLength(2);
     expect(c.history.at(-1)?.price).toBe(41990);
+  });
+});
+
+describe('displayableHistory', () => {
+  it('drops unknown (failed-scrape) snapshots so they never render as a bare dash', () => {
+    const history = [snap(37700, 'available', 1), snap(null, 'unknown', 2), snap(37200, 'available', 3)];
+    expect(displayableHistory(history)).toEqual([history[0], history[2]]);
+  });
+
+  it('keeps available and unavailable (Sold) snapshots', () => {
+    const history = [snap(34000, 'available', 1), snap(33900, 'available', 2), snap(null, 'unavailable', 3)];
+    expect(displayableHistory(history)).toEqual(history);
   });
 });
 
