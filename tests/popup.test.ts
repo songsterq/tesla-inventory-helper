@@ -94,4 +94,12 @@ describe('popup price-history panel', () => {
     const borderTopMatches = css.match(/border-top: 1px solid var\(--border\);/g) ?? [];
     expect(borderTopMatches.length).toBe(1);
   });
+
+  it('honors the panel `hidden` attribute despite its display value', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+    // .saved-car-history sets an explicit `display`, which beats the UA
+    // `[hidden] { display: none }` rule (lowest specificity). Without a matching
+    // override the panel renders even when hidden, so the chevron never toggles.
+    expect(css).toMatch(/\.saved-car-history\[hidden\]\s*\{[^}]*display:\s*none/);
+  });
 });

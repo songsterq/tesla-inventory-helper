@@ -340,11 +340,16 @@ button.link:hover {
 }
 
 .saved-car-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   background: transparent;
   border: none;
   color: var(--muted);
-  padding: 0 2px;
-  font-size: 11px;
+  padding: 0;
+  font-size: 14px;
   line-height: 1;
   font-weight: 400;
   cursor: pointer;
@@ -363,6 +368,13 @@ button.link:hover {
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+
+/* The panel opens/closes via the `hidden` attribute. Because the rule above
+   sets an explicit `display`, it beats the UA `[hidden] { display: none }`
+   (lowest specificity), so this override is required for hiding to work. */
+.saved-car-history[hidden] {
+  display: none;
 }
 
 .saved-car-history-line {
