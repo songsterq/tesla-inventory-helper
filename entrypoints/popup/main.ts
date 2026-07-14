@@ -11,11 +11,19 @@ import { evalRules, parseRules } from '../../src/rules';
 import {
   acknowledgeAll,
   changedCount,
+  displayableHistory,
   removeCar,
   type SavedCar,
   type SavedCars,
 } from '../../src/savedCars';
-import { formatCarName, formatCarSubLine, formatPrice, priceSymbol } from '../../src/format';
+import {
+  formatCarName,
+  formatCarSubLine,
+  formatHistoryTime,
+  formatHistoryValue,
+  formatPrice,
+  priceSymbol,
+} from '../../src/format';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const highlightingEnabledInput = document.getElementById(
@@ -187,6 +195,14 @@ async function onAutoCheckTimeChange() {
 
 // ─── Watchlist ───
 
+// Disclosure chevron for the price-history toggle. A crisp stroked SVG (not a
+// text glyph) so it reads clearly at small sizes; CSS rotates it 90° when the
+// row's `.saved-car-toggle` gets the `open` class.
+const CHEVRON_SVG =
+  '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" focusable="false">' +
+  '<path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function renderSavedCars(cars: SavedCars) {
   savedCarsList.replaceChildren();
   if (cars.length === 0) {
@@ -241,7 +257,62 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
     await savedCarsItem.setValue(removeCar(cars, car.vin));
   });
 
-  li.append(info, priceBlock, remove);
+  const row = document.createElement('div');
+  row.className = 'saved-car-row';
+  row.append(info, priceBlock, remove);
+  li.append(row);
+
+  // Timeline panel: only worth showing once a change has been recorded beyond
+  // the save-time baseline — i.e. at least two real observations. Failed-scrape
+  // ('unknown') snapshots are filtered out so they don't appear as a bare "—".
+  const timeline = displayableHistory(car.history);
+  if (timeline.length >= 2) {
+    const panelId = `history-${car.vin}`;
+
+    const carName = formatCarName(car);
+
+    const toggle = document.createElement('button');
+    toggle.className = 'saved-car-toggle';
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', panelId);
+    toggle.setAttribute('aria-label', `Show price history for ${carName}`);
+    toggle.innerHTML = CHEVRON_SVG;
+
+    const panel = document.createElement('ul');
+    panel.className = 'saved-car-history';
+    panel.id = panelId;
+    panel.hidden = true;
+    for (const s of timeline) {
+      const line = document.createElement('li');
+      line.className = 'saved-car-history-line';
+      const time = document.createElement('span');
+      time.className = 'history-time';
+      time.textContent = formatHistoryTime(s.at);
+      const value = document.createElement('span');
+      value.className = 'history-value';
+      value.textContent = formatHistoryValue(s);
+      line.append(time, value);
+      panel.append(line);
+    }
+
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!open));
+      toggle.classList.toggle('open', !open);
+      toggle.setAttribute(
+        'aria-label',
+        open ? `Show price history for ${carName}` : `Hide price history for ${carName}`,
+      );
+      panel.hidden = open;
+    });
+
+    // The chevron lives in the right cluster, just before the remove button, so
+    // car names stay flush-left whether or not a row has history to expand.
+    row.insertBefore(toggle, remove);
+    li.append(panel);
+  }
+
   return li;
 }
 

@@ -39,3 +39,23 @@ export function formatCarSubLine(car: SavedCar): string {
   parts.push(car.likelyHw);
   return parts.filter(Boolean).join(' · ');
 }
+
+// One line of the popup price-history panel: the observation's value. A sold car
+// reads "Sold"; anything else shows its price ("—" when the price is unknown).
+export function formatHistoryValue(s: CarSnapshot): string {
+  if (s.availability === 'unavailable') return 'Sold';
+  return formatPrice(s);
+}
+
+// The timestamp column of a history line, e.g. "Jul 10, 9:34 AM". Localized to
+// the user's runtime locale; `at` is a Date.now()-style epoch in ms.
+const HISTORY_TIME_FMT = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+export function formatHistoryTime(at: number): string {
+  return HISTORY_TIME_FMT.format(at);
+}

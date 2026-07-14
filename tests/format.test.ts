@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCarName, formatCarSubLine, formatPrice, priceSymbol } from '../src/format';
+import { formatCarName, formatCarSubLine, formatHistoryTime, formatHistoryValue, formatPrice, priceSymbol } from '../src/format';
 import type { CarSnapshot, SavedCar } from '../src/savedCars';
 
 function snap(overrides: Partial<CarSnapshot> = {}): CarSnapshot {
@@ -69,5 +69,34 @@ describe('formatCarSubLine', () => {
   });
   it('omits paint when absent', () => {
     expect(formatCarSubLine(makeCar({ paintName: null }))).toBe('42,000 mi · HW4');
+  });
+});
+
+describe('formatHistoryValue', () => {
+  it('shows the formatted price for an available snapshot', () => {
+    expect(formatHistoryValue(snap({ price: 39000, currency: 'USD' }))).toBe('$39,000');
+  });
+
+  it('shows "Sold" for an unavailable snapshot', () => {
+    expect(formatHistoryValue(snap({ availability: 'unavailable', price: null }))).toBe('Sold');
+  });
+
+  it('shows a dash when an available snapshot has no price', () => {
+    expect(formatHistoryValue(snap({ price: null, currency: null }))).toBe('—');
+  });
+
+  it('shows "Sold" even when an unavailable snapshot has a stale price', () => {
+    expect(formatHistoryValue(snap({ availability: 'unavailable', price: 39000 }))).toBe('Sold');
+  });
+});
+
+describe('formatHistoryTime', () => {
+  it('renders a date-and-time label containing the day and a time separator', () => {
+    // Noon UTC keeps the calendar day stable across common test timezones.
+    const at = Date.UTC(2026, 6, 10, 12, 34); // 2026-07-10T12:34Z
+    const out = formatHistoryTime(at);
+    expect(out).toContain('10');
+    expect(out).toMatch(/\d:\d{2}/);
+    expect(out.length).toBeGreaterThan(0);
   });
 });

@@ -247,6 +247,10 @@ export function diffSnapshot(prev: CarSnapshot, next: CarSnapshot): ChangeKind {
 }
 
 function appendHistory(history: CarSnapshot[], snapshot: CarSnapshot): CarSnapshot[] {
+  // A failed/flaky scrape yields availability:'unknown' with no real price. That
+  // is a measurement gap, not a data point — keep it out of the timeline so the
+  // history stays pure price/Sold events and unknowns don't consume ring slots.
+  if (snapshot.availability === 'unknown') return history;
   const last = history[history.length - 1];
   // Dedup unchanged observations so repeated checks don't grow history.
   if (last && last.price === snapshot.price && last.availability === snapshot.availability) {
@@ -267,6 +271,15 @@ export function applyCheckResult(car: SavedCar, snapshot: CarSnapshot): SavedCar
     // A fresh change un-acknowledges; an unchanged check leaves prior state alone.
     acknowledged: change === 'none' ? car.acknowledged : false,
   };
+}
+
+// The subset of history worth showing in the price-history panel: real
+// observations only. 'unknown' snapshots (failed scrapes) carry no price and
+// are not meaningful timeline points. appendHistory keeps new ones out, but
+// data saved before that guard shipped can still contain them, so filter
+// defensively at read time too — otherwise they render as a bare "—".
+export function displayableHistory(history: CarSnapshot[]): CarSnapshot[] {
+  return history.filter((s) => s.availability !== 'unknown');
 }
 
 // Number of cars with an unacknowledged change — the toolbar badge value.

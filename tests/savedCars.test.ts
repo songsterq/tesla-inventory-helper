@@ -7,6 +7,7 @@ import {
   changedCount,
   createSavedCar,
   diffSnapshot,
+  displayableHistory,
   HISTORY_LIMIT,
   makeSnapshot,
   MAX_SAVED_CARS,
@@ -310,6 +311,33 @@ describe('applyCheckResult', () => {
     }
     expect(c.history).toHaveLength(HISTORY_LIMIT);
     expect(c.history.at(-1)?.price).toBe(HISTORY_LIMIT + 5);
+  });
+
+  it('does not add an unknown (flaky) observation to history', () => {
+    let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(null, 'unknown', 200));
+    expect(c.history).toHaveLength(1);
+    expect(c.history.at(-1)?.availability).toBe('available');
+  });
+
+  it('still appends a real price change after an unknown check', () => {
+    let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(null, 'unknown', 200));
+    c = applyCheckResult(c, snap(41990, 'available', 300));
+    expect(c.history).toHaveLength(2);
+    expect(c.history.at(-1)?.price).toBe(41990);
+  });
+});
+
+describe('displayableHistory', () => {
+  it('drops unknown (failed-scrape) snapshots so they never render as a bare dash', () => {
+    const history = [snap(37700, 'available', 1), snap(null, 'unknown', 2), snap(37200, 'available', 3)];
+    expect(displayableHistory(history)).toEqual([history[0], history[2]]);
+  });
+
+  it('keeps available and unavailable (Sold) snapshots', () => {
+    const history = [snap(34000, 'available', 1), snap(33900, 'available', 2), snap(null, 'unavailable', 3)];
+    expect(displayableHistory(history)).toEqual(history);
   });
 });
 
