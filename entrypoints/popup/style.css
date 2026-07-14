@@ -343,15 +343,11 @@ button.link:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
   background: transparent;
   border: none;
   color: var(--muted);
-  padding: 0;
-  font-size: 14px;
-  line-height: 1;
-  font-weight: 400;
+  padding: 2px;
+  line-height: 0;
   cursor: pointer;
   flex: 0 0 auto;
 }
@@ -359,6 +355,15 @@ button.link:hover {
 .saved-car-toggle:hover {
   color: var(--fg);
   filter: none;
+}
+
+.saved-car-toggle svg {
+  display: block;
+  transition: transform 0.15s ease;
+}
+
+.saved-car-toggle.open svg {
+  transform: rotate(90deg);
 }
 
 .saved-car-history {

@@ -194,6 +194,14 @@ async function onAutoCheckTimeChange() {
 
 // ─── Watchlist ───
 
+// Disclosure chevron for the price-history toggle. A crisp stroked SVG (not a
+// text glyph) so it reads clearly at small sizes; CSS rotates it 90° when the
+// row's `.saved-car-toggle` gets the `open` class.
+const CHEVRON_SVG =
+  '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" focusable="false">' +
+  '<path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function renderSavedCars(cars: SavedCars) {
   savedCarsList.replaceChildren();
   if (cars.length === 0) {
@@ -266,7 +274,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-controls', panelId);
     toggle.setAttribute('aria-label', `Show price history for ${carName}`);
-    toggle.textContent = '▸';
+    toggle.innerHTML = CHEVRON_SVG;
 
     const panel = document.createElement('ul');
     panel.className = 'saved-car-history';
@@ -288,7 +296,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
     toggle.addEventListener('click', () => {
       const open = toggle.getAttribute('aria-expanded') === 'true';
       toggle.setAttribute('aria-expanded', String(!open));
-      toggle.textContent = open ? '▸' : '▾';
+      toggle.classList.toggle('open', !open);
       toggle.setAttribute(
         'aria-label',
         open ? `Show price history for ${carName}` : `Hide price history for ${carName}`,
@@ -296,8 +304,9 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
       panel.hidden = open;
     });
 
-    // Leading chevron sits at the start of the row.
-    row.prepend(toggle);
+    // The chevron lives in the right cluster, just before the remove button, so
+    // car names stay flush-left whether or not a row has history to expand.
+    row.insertBefore(toggle, remove);
     li.append(panel);
   }
 
