@@ -311,6 +311,21 @@ describe('applyCheckResult', () => {
     expect(c.history).toHaveLength(HISTORY_LIMIT);
     expect(c.history.at(-1)?.price).toBe(HISTORY_LIMIT + 5);
   });
+
+  it('does not add an unknown (flaky) observation to history', () => {
+    let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(null, 'unknown', 200));
+    expect(c.history).toHaveLength(1);
+    expect(c.history.at(-1)?.availability).toBe('available');
+  });
+
+  it('still appends a real price change after an unknown check', () => {
+    let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(null, 'unknown', 200));
+    c = applyCheckResult(c, snap(41990, 'available', 300));
+    expect(c.history).toHaveLength(2);
+    expect(c.history.at(-1)?.price).toBe(41990);
+  });
 });
 
 describe('addCar / removeCar', () => {

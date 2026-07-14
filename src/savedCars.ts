@@ -247,6 +247,10 @@ export function diffSnapshot(prev: CarSnapshot, next: CarSnapshot): ChangeKind {
 }
 
 function appendHistory(history: CarSnapshot[], snapshot: CarSnapshot): CarSnapshot[] {
+  // A failed/flaky scrape yields availability:'unknown' with no real price. That
+  // is a measurement gap, not a data point — keep it out of the timeline so the
+  // history stays pure price/Sold events and unknowns don't consume ring slots.
+  if (snapshot.availability === 'unknown') return history;
   const last = history[history.length - 1];
   // Dedup unchanged observations so repeated checks don't grow history.
   if (last && last.price === snapshot.price && last.availability === snapshot.availability) {
