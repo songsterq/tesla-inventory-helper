@@ -84,6 +84,10 @@ describe('formatHistoryValue', () => {
   it('shows a dash when an available snapshot has no price', () => {
     expect(formatHistoryValue(snap({ price: null, currency: null }))).toBe('—');
   });
+
+  it('shows "Sold" even when an unavailable snapshot has a stale price', () => {
+    expect(formatHistoryValue(snap({ availability: 'unavailable', price: 39000 }))).toBe('Sold');
+  });
 });
 
 describe('formatHistoryTime', () => {

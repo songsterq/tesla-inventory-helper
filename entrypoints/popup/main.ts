@@ -258,12 +258,14 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   if (car.history.length >= 2) {
     const panelId = `history-${car.vin}`;
 
+    const carName = formatCarName(car);
+
     const toggle = document.createElement('button');
     toggle.className = 'saved-car-toggle';
     toggle.type = 'button';
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-controls', panelId);
-    toggle.setAttribute('aria-label', `Show price history for ${formatCarName(car)}`);
+    toggle.setAttribute('aria-label', `Show price history for ${carName}`);
     toggle.textContent = '▸';
 
     const panel = document.createElement('ul');
@@ -287,6 +289,10 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
       const open = toggle.getAttribute('aria-expanded') === 'true';
       toggle.setAttribute('aria-expanded', String(!open));
       toggle.textContent = open ? '▸' : '▾';
+      toggle.setAttribute(
+        'aria-label',
+        open ? `Show price history for ${carName}` : `Hide price history for ${carName}`,
+      );
       panel.hidden = open;
     });
 
