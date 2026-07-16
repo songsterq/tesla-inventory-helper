@@ -74,6 +74,15 @@ const cleanPaintName = (raw: string | null | undefined): string | null => {
   return name.length >= 3 && name.length <= 30 ? name : null;
 };
 
+// Filenames are usually prefixed ("Paint_StealthGrey.png") but some plants/models
+// serve the swatch unprefixed (".../MODELY_/DiamondBlack.png") — strip the prefix
+// only if present, never require it.
+function paintNameFromSwatchSrc(src: string | null | undefined): string | null {
+  const filename = src?.split('/').pop()?.split(/[?#]/)[0];
+  const stem = filename?.replace(/\.[a-z0-9]+$/i, '').replace(/^Paint_/i, '');
+  return stem ? cleanPaintName(stem.replace(/([a-z])([A-Z])/g, '$1 $2')) : null;
+}
+
 function scrapePaintName(root: HTMLElement): string | null {
   // (a) Order pages: the Capitalized phrase before the word "Paint" ("Stealth Grey
   // Paint" feature line). innerText, not textContent — textContent glues adjacent
@@ -82,20 +91,23 @@ function scrapePaintName(root: HTMLElement): string | null {
   const named = (root.innerText ?? '').match(/([A-Z][a-z]+(?:[ -][A-Z][a-z]+){0,3}) ?Paint\b/);
   const fromText = cleanPaintName(named?.[1]);
   if (fromText) return fromText;
-  // (b) Inventory cards: no name in visible text — the swatch <img> URL names the
-  // paint asset (…/Paint_StealthGrey.png), and the card's closed tooltip repeats
-  // the same image next to the human-readable name ("Stealth Grey"). The visible
-  // copy's label is literally "Paint", which cleanPaintName rejects, so the loop
-  // lands on the tooltip copy.
-  for (const img of Array.from(root.querySelectorAll<HTMLImageElement>('img[src*="Paint_" i]'))) {
-    const name = cleanPaintName(img.closest('div,li')?.textContent);
-    if (name) return name;
-  }
-  // (c) Last resort: derive the name from the swatch filename itself
-  // (Paint_StealthGrey → "Stealth Grey").
+  // (b) Inventory cards: no name in visible text — the card's "Paint" feature-list
+  // item wraps a swatch <img> next to a label whose own text is literally "Paint".
+  // Find that item by its label (not by the image src, which isn't reliably
+  // prefixed — see paintNameFromSwatchSrc) and derive the name from its swatch.
+  const paintLabel = Array.from(root.querySelectorAll<HTMLElement>('span,div')).find(
+    (el) => el.children.length === 0 && el.textContent?.trim() === 'Paint',
+  );
+  const labelledSrc = paintLabel
+    ?.closest('div,li')
+    ?.querySelector<HTMLImageElement>('img[src]')
+    ?.getAttribute('src');
+  const fromLabel = paintNameFromSwatchSrc(labelledSrc);
+  if (fromLabel) return fromLabel;
+  // (c) Last resort: any swatch image whose filename still carries the "Paint_"
+  // prefix (covers layouts where the label lookup above doesn't apply).
   const src = root.querySelector<HTMLImageElement>('img[src*="Paint_" i]')?.getAttribute('src');
-  const file = src?.match(/Paint_([A-Za-z]+)/i)?.[1];
-  return file ? cleanPaintName(file.replace(/([a-z])([A-Z])/g, '$1 $2')) : null;
+  return paintNameFromSwatchSrc(src);
 }
 
 function detectUnavailable(): boolean {
