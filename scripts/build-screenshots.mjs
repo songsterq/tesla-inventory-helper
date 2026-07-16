@@ -1,8 +1,9 @@
 import { readdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { extname, basename, join } from 'node:path';
 import sharp from 'sharp';
 
-const SRC = '/Users/songqian/Desktop/tih';
+const SRC = join(homedir(), 'Desktop', 'tih');
 const TARGET_W = 1280;
 const TARGET_H = 800;
 
