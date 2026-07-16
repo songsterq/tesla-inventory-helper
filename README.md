@@ -33,6 +33,10 @@ For architecture notes, the rule engine, allowlist sync, and release checklist, 
 
 The extension only reads pages on Tesla.com and a fixed set of car-listing hosts (shown by Chrome at install time). Watchlist checks open tabs only for URLs you saved. No data leaves your browser.
 
+## License
+
+[MIT](./LICENSE)
+
 ## Disclaimer
 
 Independent third-party tool. Not affiliated with, endorsed by, or sponsored by Tesla, Inc. "Tesla" is used only to identify the VINs the extension recognizes.
