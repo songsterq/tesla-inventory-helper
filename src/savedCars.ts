@@ -250,6 +250,14 @@ export function reorderCars(cars: SavedCars, fromIndex: number, toIndex: number)
   return next;
 }
 
+// Convert "drop before/after targetIndex" into the post-removal toIndex
+// that reorderCars expects.
+export function dropToIndex(fromIndex: number, targetIndex: number, placeAfter: boolean): number {
+  let to = placeAfter ? targetIndex + 1 : targetIndex;
+  if (fromIndex < to) to -= 1;
+  return to;
+}
+
 // The heart of monitoring. A flaky/slow scrape yields availability:'unknown',
 // which must NEVER be reported as a change — otherwise a single timeout would
 // fabricate a "gone" or price move.

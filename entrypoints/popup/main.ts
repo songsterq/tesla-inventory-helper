@@ -12,6 +12,7 @@ import {
   acknowledgeAll,
   changedCount,
   displayableHistory,
+  dropToIndex,
   removeCar,
   reorderCars,
   type SavedCar,
@@ -214,13 +215,9 @@ const GRIP_SVG =
   '<circle cx="11" cy="13" r="1.25" fill="currentColor"/>' +
   '</svg>';
 
-// Convert "drop before/after targetIndex" into the post-removal toIndex
-// that reorderCars expects.
-function dropToIndex(fromIndex: number, targetIndex: number, placeAfter: boolean): number {
-  let to = placeAfter ? targetIndex + 1 : targetIndex;
-  if (fromIndex < to) to -= 1;
-  return to;
-}
+// Private MIME so only our grip-handle drags paint insert cues — native
+// drags (e.g. the title <a>) carry text/plain and must be ignored.
+const TIH_VIN_MIME = 'application/x-tih-vin';
 
 function clearDragOver(list: HTMLElement) {
   for (const el of list.querySelectorAll('.saved-car.drag-over-before, .saved-car.drag-over-after')) {
@@ -253,6 +250,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   title.href = car.url;
   title.target = '_blank';
   title.rel = 'noopener noreferrer';
+  title.draggable = false;
   title.textContent = formatCarName(car);
   info.append(title);
 
@@ -287,13 +285,17 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   handle.className = 'saved-car-handle';
   handle.type = 'button';
   handle.draggable = true;
+  handle.tabIndex = -1;
   handle.setAttribute('aria-label', `Reorder ${formatCarName(car)}`);
   handle.title = 'Drag to reorder';
   handle.innerHTML = GRIP_SVG;
 
   handle.addEventListener('dragstart', (e) => {
-    e.dataTransfer?.setData('text/plain', car.vin);
-    e.dataTransfer!.effectAllowed = 'move';
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    dt.setData(TIH_VIN_MIME, car.vin);
+    dt.setData('text/plain', car.vin);
+    dt.effectAllowed = 'move';
     li.classList.add('dragging');
   });
   handle.addEventListener('dragend', () => {
@@ -307,7 +309,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   li.append(row);
 
   li.addEventListener('dragover', (e) => {
-    if (!e.dataTransfer?.types.includes('text/plain')) return;
+    if (!e.dataTransfer?.types.includes(TIH_VIN_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = li.getBoundingClientRect();
@@ -322,20 +324,21 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   li.addEventListener('drop', async (e) => {
     e.preventDefault();
     clearDragOver(savedCarsList);
-    const fromVin = e.dataTransfer?.getData('text/plain');
+    const dt = e.dataTransfer;
+    if (!dt?.types.includes(TIH_VIN_MIME)) return;
+    const fromVin = dt.getData(TIH_VIN_MIME);
+    const rect = li.getBoundingClientRect();
+    const placeAfter = e.clientY > rect.top + rect.height / 2;
     if (!fromVin || fromVin === car.vin) return;
     const cars = await savedCarsItem.getValue();
     const fromIndex = cars.findIndex((c) => c.vin === fromVin);
     const targetIndex = cars.findIndex((c) => c.vin === car.vin);
     if (fromIndex < 0 || targetIndex < 0) return;
-    const rect = li.getBoundingClientRect();
-    const placeAfter = e.clientY > rect.top + rect.height / 2;
     const toIndex = dropToIndex(fromIndex, targetIndex, placeAfter);
     const next = reorderCars(cars, fromIndex, toIndex);
     if (next === cars) return;
     await savedCarsItem.setValue(next);
   });
-
 
   // Timeline panel: only worth showing once a change has been recorded beyond
   // the save-time baseline — i.e. at least two real observations. Failed-scrape
