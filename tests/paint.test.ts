@@ -11,6 +11,15 @@ describe('paintNameFromSwatchSrc', () => {
     );
   });
 
+  it('maps Red_Paint_R2 swatch stems to Ultra Red', () => {
+    expect(paintNameFromSwatchSrc('https://digitalassets.tesla.com/.../Paint_Red_Paint_R2.png')).toBe(
+      'Ultra Red',
+    );
+    expect(paintNameFromSwatchSrc('https://digitalassets.tesla.com/.../MODELY_/Red_Paint_R2.png')).toBe(
+      'Ultra Red',
+    );
+  });
+
   it('still spaces camelCase stems like StealthGrey', () => {
     expect(paintNameFromSwatchSrc('https://example.com/Paint_StealthGrey.png')).toBe('Stealth Grey');
   });

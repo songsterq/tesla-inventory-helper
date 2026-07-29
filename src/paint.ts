@@ -5,6 +5,7 @@
 
 const PAINT_STEM_ALIASES: Record<string, string> = {
   Silver_R1: 'Quicksilver',
+  Red_Paint_R2: 'Ultra Red',
 };
 
 const cleanPaintName = (raw: string | null | undefined): string | null => {
