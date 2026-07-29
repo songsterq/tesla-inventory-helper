@@ -100,3 +100,16 @@ describe('isUsedOrderUrl', () => {
     expect(isUsedOrderUrl('')).toBe(false);
   });
 });
+
+describe('content script used-only gating', () => {
+  it('imports and calls the used-page helpers in apply()', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(
+      new URL('../entrypoints/content/index.ts', import.meta.url),
+      'utf8',
+    );
+    expect(src).toContain('isUsedInventoryPath');
+    expect(src).toContain('isUsedOrderUrl');
+    expect(src).toContain('clearMonitorUi');
+  });
+});

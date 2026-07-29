@@ -2,7 +2,7 @@
 
 Chrome MV3 browser extension that helps Tesla shoppers find HW4 cars. Two surfaces:
 
-1. **Tesla.com (worldwide):** glow-highlights cars whose VIN matches user-defined rules, on inventory and order pages.
+1. **Tesla.com (worldwide):** glow-highlights cars whose VIN matches user-defined rules, on **used** inventory and used order pages.
 2. **Third-party car-listing sites:** detects Tesla VINs on the page and shows a popover with decoded info (model, year, plant, build serial, likely Autopilot HW).
 
 ## Stack
@@ -61,6 +61,8 @@ Condition types:
 ## Tesla.com URL handling
 
 Supports both US (`/inventory/...`, `/<model>/order/<VIN>`) and locale-prefixed international (`/<locale>/inventory/...`, `/<locale>/my/order/<VIN>`) URLs. The `apply()` router uses regexes (not `startsWith`) to handle both.
+
+Highlight and Track UI run only on **used** inventory (`/inventory/used/...`) and **used** order pages. Order eligibility: `titleStatus=used` → yes; `titleStatus=new` → no; param missing → yes only if the path has a real 17-char VIN (`isUsedInventoryPath` / `isUsedOrderUrl` in `src/vin.ts`). New-inventory/new-order pages clear any leftover glow/Track pills (SPA navigations). Manifest matches stay broad so the content script still loads on those URLs.
 
 ## Watchlist auto-checks
 
