@@ -8,6 +8,7 @@ import {
   createSavedCar,
   diffSnapshot,
   displayableHistory,
+  dropToIndex,
   HISTORY_LIMIT,
   makeSnapshot,
   MAX_SAVED_CARS,
@@ -15,8 +16,10 @@ import {
   parsePrice,
   pickBestPrice,
   removeCar,
+  reorderCars,
   type CarSnapshot,
   type SavedCar,
+  type SavedCars,
 } from '../src/savedCars';
 
 const info = (vin: string): TeslaVinInfo => ({
@@ -363,6 +366,62 @@ describe('addCar / removeCar', () => {
     const after = removeCar(cars, '5YJ3E1EA0PF000001');
     expect(after.map((c) => c.vin)).toEqual(['5YJ3E1EA0PF000002']);
   });
+});
+
+describe('reorderCars', () => {
+  const list = (): SavedCars => [
+    car('5YJ3E1EA0PF000001', snap(1)),
+    car('5YJ3E1EA0PF000002', snap(2)),
+    car('5YJ3E1EA0PF000003', snap(3)),
+  ];
+
+  it('moves an item toward the start', () => {
+    const after = reorderCars(list(), 2, 0);
+    expect(after.map((c) => c.vin)).toEqual([
+      '5YJ3E1EA0PF000003',
+      '5YJ3E1EA0PF000001',
+      '5YJ3E1EA0PF000002',
+    ]);
+  });
+
+  it('moves an item toward the end', () => {
+    const after = reorderCars(list(), 0, 2);
+    expect(after.map((c) => c.vin)).toEqual([
+      '5YJ3E1EA0PF000002',
+      '5YJ3E1EA0PF000003',
+      '5YJ3E1EA0PF000001',
+    ]);
+  });
+
+  it('returns the same reference when from === to', () => {
+    const cars = list();
+    expect(reorderCars(cars, 1, 1)).toBe(cars);
+  });
+
+  it('returns the same reference for out-of-bounds indices', () => {
+    const cars = list();
+    expect(reorderCars(cars, -1, 1)).toBe(cars);
+    expect(reorderCars(cars, 1, 99)).toBe(cars);
+    expect(reorderCars(cars, 99, 0)).toBe(cars);
+  });
+});
+
+describe('dropToIndex', () => {
+  // 3-item list [0,1,2]: six move permutations covering before/after halves
+  // and adjacent no-ops that collapse to from === to.
+  it.each([
+    { from: 2, target: 0, placeAfter: false, expected: 0 }, // move up, before
+    { from: 2, target: 0, placeAfter: true, expected: 1 }, // move up, after
+    { from: 0, target: 2, placeAfter: false, expected: 1 }, // move down, before
+    { from: 0, target: 2, placeAfter: true, expected: 2 }, // move down, after
+    { from: 1, target: 0, placeAfter: true, expected: 1 }, // adjacent no-op (after 0)
+    { from: 0, target: 1, placeAfter: false, expected: 0 }, // adjacent no-op (before 1)
+  ])(
+    'from=$from target=$target placeAfter=$placeAfter → $expected',
+    ({ from, target, placeAfter, expected }) => {
+      expect(dropToIndex(from, target, placeAfter)).toBe(expected);
+    },
+  );
 });
 
 describe('changedCount / acknowledgeAll', () => {

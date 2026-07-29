@@ -233,6 +233,31 @@ export function removeCar(cars: SavedCars, vin: string): SavedCars {
   return cars.filter((c) => c.vin !== vin);
 }
 
+export function reorderCars(cars: SavedCars, fromIndex: number, toIndex: number): SavedCars {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= cars.length ||
+    toIndex >= cars.length
+  ) {
+    return cars;
+  }
+  const next = [...cars];
+  const [item] = next.splice(fromIndex, 1);
+  if (!item) return cars;
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
+// Convert "drop before/after targetIndex" into the post-removal toIndex
+// that reorderCars expects.
+export function dropToIndex(fromIndex: number, targetIndex: number, placeAfter: boolean): number {
+  let to = placeAfter ? targetIndex + 1 : targetIndex;
+  if (fromIndex < to) to -= 1;
+  return to;
+}
+
 // The heart of monitoring. A flaky/slow scrape yields availability:'unknown',
 // which must NEVER be reported as a change — otherwise a single timeout would
 // fabricate a "gone" or price move.

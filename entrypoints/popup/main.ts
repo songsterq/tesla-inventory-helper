@@ -12,7 +12,9 @@ import {
   acknowledgeAll,
   changedCount,
   displayableHistory,
+  dropToIndex,
   removeCar,
+  reorderCars,
   type SavedCar,
   type SavedCars,
 } from '../../src/savedCars';
@@ -203,6 +205,26 @@ const CHEVRON_SVG =
   '<path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="2" ' +
   'stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+const GRIP_SVG =
+  '<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false">' +
+  '<circle cx="5" cy="3" r="1.25" fill="currentColor"/>' +
+  '<circle cx="11" cy="3" r="1.25" fill="currentColor"/>' +
+  '<circle cx="5" cy="8" r="1.25" fill="currentColor"/>' +
+  '<circle cx="11" cy="8" r="1.25" fill="currentColor"/>' +
+  '<circle cx="5" cy="13" r="1.25" fill="currentColor"/>' +
+  '<circle cx="11" cy="13" r="1.25" fill="currentColor"/>' +
+  '</svg>';
+
+// Private MIME so only our grip-handle drags paint insert cues — native
+// drags (e.g. the title <a>) carry text/plain and must be ignored.
+const TIH_VIN_MIME = 'application/x-tih-vin';
+
+function clearDragOver(list: HTMLElement) {
+  for (const el of list.querySelectorAll('.saved-car.drag-over-before, .saved-car.drag-over-after')) {
+    el.classList.remove('drag-over-before', 'drag-over-after');
+  }
+}
+
 function renderSavedCars(cars: SavedCars) {
   savedCarsList.replaceChildren();
   if (cars.length === 0) {
@@ -218,6 +240,7 @@ function renderSavedCars(cars: SavedCars) {
 function renderCarRow(car: SavedCar): HTMLLIElement {
   const li = document.createElement('li');
   li.className = 'saved-car';
+  li.dataset.vin = car.vin;
 
   const info = document.createElement('div');
   info.className = 'saved-car-info';
@@ -227,6 +250,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   title.href = car.url;
   title.target = '_blank';
   title.rel = 'noopener noreferrer';
+  title.draggable = false;
   title.textContent = formatCarName(car);
   info.append(title);
 
@@ -257,10 +281,64 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
     await savedCarsItem.setValue(removeCar(cars, car.vin));
   });
 
+  const handle = document.createElement('button');
+  handle.className = 'saved-car-handle';
+  handle.type = 'button';
+  handle.draggable = true;
+  handle.tabIndex = -1;
+  handle.setAttribute('aria-label', `Reorder ${formatCarName(car)}`);
+  handle.title = 'Drag to reorder';
+  handle.innerHTML = GRIP_SVG;
+
+  handle.addEventListener('dragstart', (e) => {
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    dt.setData(TIH_VIN_MIME, car.vin);
+    dt.setData('text/plain', car.vin);
+    dt.effectAllowed = 'move';
+    li.classList.add('dragging');
+  });
+  handle.addEventListener('dragend', () => {
+    li.classList.remove('dragging');
+    clearDragOver(savedCarsList);
+  });
+
   const row = document.createElement('div');
   row.className = 'saved-car-row';
-  row.append(info, priceBlock, remove);
+  row.append(handle, info, priceBlock, remove);
   li.append(row);
+
+  li.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer?.types.includes(TIH_VIN_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = li.getBoundingClientRect();
+    const placeAfter = e.clientY > rect.top + rect.height / 2;
+    clearDragOver(savedCarsList);
+    li.classList.add(placeAfter ? 'drag-over-after' : 'drag-over-before');
+  });
+  li.addEventListener('dragleave', (e) => {
+    if (li.contains(e.relatedTarget as Node)) return;
+    li.classList.remove('drag-over-before', 'drag-over-after');
+  });
+  li.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    clearDragOver(savedCarsList);
+    const dt = e.dataTransfer;
+    if (!dt?.types.includes(TIH_VIN_MIME)) return;
+    const fromVin = dt.getData(TIH_VIN_MIME);
+    const rect = li.getBoundingClientRect();
+    const placeAfter = e.clientY > rect.top + rect.height / 2;
+    if (!fromVin || fromVin === car.vin) return;
+    const cars = await savedCarsItem.getValue();
+    const fromIndex = cars.findIndex((c) => c.vin === fromVin);
+    const targetIndex = cars.findIndex((c) => c.vin === car.vin);
+    if (fromIndex < 0 || targetIndex < 0) return;
+    const toIndex = dropToIndex(fromIndex, targetIndex, placeAfter);
+    const next = reorderCars(cars, fromIndex, toIndex);
+    if (next === cars) return;
+    await savedCarsItem.setValue(next);
+  });
 
   // Timeline panel: only worth showing once a change has been recorded beyond
   // the save-time baseline — i.e. at least two real observations. Failed-scrape
