@@ -103,3 +103,29 @@ describe('popup price-history panel', () => {
     expect(css).toMatch(/\.saved-car-history\[hidden\]\s*\{[^}]*display:\s*none/);
   });
 });
+
+describe('popup watchlist reorder', () => {
+  it('styles the drag handle and drop cues', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+    expect(css).toContain('.saved-car-handle');
+    expect(css).toContain('.saved-car.drag-over-before');
+    expect(css).toContain('.saved-car.drag-over-after');
+    expect(css).toContain('cursor: grab');
+  });
+
+  it('uses inset box-shadow for drop cues, not a new divider border', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+    const borderTopMatches = css.match(/border-top: 1px solid var\(--border\);/g) ?? [];
+    expect(borderTopMatches.length).toBe(1);
+    expect(css).toContain('box-shadow: inset 0 2px 0 var(--accent)');
+    expect(css).toContain('box-shadow: inset 0 -2px 0 var(--accent)');
+  });
+
+  it('wires reorderCars and a drag handle in the popup script', async () => {
+    const src = await readFile(new URL('../entrypoints/popup/main.ts', import.meta.url), 'utf8');
+    expect(src).toContain('reorderCars');
+    expect(src).toContain('saved-car-handle');
+    expect(src).toContain('draggable');
+    expect(src).toContain('dropToIndex');
+  });
+});

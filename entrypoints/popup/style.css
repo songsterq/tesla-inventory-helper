@@ -339,6 +339,45 @@ button.link:hover {
   gap: 8px;
 }
 
+.saved-car-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 2px;
+  line-height: 0;
+  cursor: grab;
+  flex: 0 0 auto;
+}
+
+.saved-car-handle:active {
+  cursor: grabbing;
+}
+
+.saved-car-handle:hover {
+  color: var(--fg);
+  filter: none;
+}
+
+.saved-car-handle svg {
+  display: block;
+  pointer-events: none;
+}
+
+.saved-car.drag-over-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.saved-car.drag-over-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.saved-car.dragging {
+  opacity: 0.5;
+}
+
 .saved-car-toggle {
   display: flex;
   align-items: center;
