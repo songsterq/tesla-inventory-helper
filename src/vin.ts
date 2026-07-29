@@ -12,6 +12,29 @@ export function extractVinFromOrderPath(pathname: string | null | undefined): st
   return match[1].slice(0, 17).toUpperCase();
 }
 
+// Highlight/Track UI is used-inventory only. Locale-prefixed paths
+// (`/en_CA/inventory/used/...`) still match.
+export function isUsedInventoryPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return /(^|\/)inventory\/used(\/|$)/i.test(pathname);
+}
+
+// Order-page UI gate. titleStatus wins when present; when absent, a real
+// 17-char VIN in the path counts as used (watchlist re-check URLs omit the param).
+export function isUsedOrderUrl(href: string | null | undefined): boolean {
+  if (!href) return false;
+  let url: URL;
+  try {
+    url = new URL(href, 'https://www.tesla.com');
+  } catch {
+    return false;
+  }
+  const status = url.searchParams.get('titleStatus')?.toLowerCase();
+  if (status === 'used') return true;
+  if (status === 'new') return false;
+  return extractVinFromOrderPath(url.pathname) !== null;
+}
+
 // A sold used car's order page redirects to the inventory listing, which is
 // Tesla's signal that the car is gone. Given a tab's final URL and the VIN we
 // asked about, report that redirect. Deliberately conservative: only a bounce
