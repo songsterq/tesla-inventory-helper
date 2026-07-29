@@ -84,6 +84,11 @@ describe('isUsedOrderUrl', () => {
     ).toBe(false);
   });
 
+  it('compares titleStatus case-insensitively', () => {
+    expect(isUsedOrderUrl(`/my/order/${VIN}?titleStatus=NEW`)).toBe(false);
+    expect(isUsedOrderUrl(`/my/order/7SAY238_abc?titleStatus=Used`)).toBe(true);
+  });
+
   it('when titleStatus is missing, is true only if the path has a real VIN', () => {
     expect(isUsedOrderUrl(`https://www.tesla.com/my/order/${VIN}`)).toBe(true);
     expect(isUsedOrderUrl(`/m3/order/${VIN}`)).toBe(true);
@@ -98,6 +103,7 @@ describe('isUsedOrderUrl', () => {
   it('is false for null/unparseable input', () => {
     expect(isUsedOrderUrl(null)).toBe(false);
     expect(isUsedOrderUrl('')).toBe(false);
+    expect(isUsedOrderUrl('http://[')).toBe(false);
   });
 });
 
