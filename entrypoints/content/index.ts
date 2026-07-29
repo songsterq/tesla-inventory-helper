@@ -13,6 +13,7 @@ import {
   pickBestPrice,
   removeCar,
 } from '../../src/savedCars';
+import { paintNameFromSwatchSrc } from '../../src/paint';
 import './style.css';
 
 // Result of scraping the current order page for the monitoring feature.
@@ -73,15 +74,6 @@ const cleanPaintName = (raw: string | null | undefined): string | null => {
   const name = raw.replace(/\s*paint\b/i, '').replace(/\s+/g, ' ').trim();
   return name.length >= 3 && name.length <= 30 ? name : null;
 };
-
-// Filenames are usually prefixed ("Paint_StealthGrey.png") but some plants/models
-// serve the swatch unprefixed (".../MODELY_/DiamondBlack.png") — strip the prefix
-// only if present, never require it.
-function paintNameFromSwatchSrc(src: string | null | undefined): string | null {
-  const filename = src?.split('/').pop()?.split(/[?#]/)[0];
-  const stem = filename?.replace(/\.[a-z0-9]+$/i, '').replace(/^Paint_/i, '');
-  return stem ? cleanPaintName(stem.replace(/([a-z])([A-Z])/g, '$1 $2')) : null;
-}
 
 function scrapePaintName(root: HTMLElement): string | null {
   // (a) Order pages: the Capitalized phrase before the word "Paint" ("Stealth Grey
