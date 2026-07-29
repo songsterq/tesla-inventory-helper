@@ -15,8 +15,10 @@ import {
   parsePrice,
   pickBestPrice,
   removeCar,
+  reorderCars,
   type CarSnapshot,
   type SavedCar,
+  type SavedCars,
 } from '../src/savedCars';
 
 const info = (vin: string): TeslaVinInfo => ({
@@ -362,6 +364,44 @@ describe('addCar / removeCar', () => {
     const cars = [car('5YJ3E1EA0PF000001', snap(1)), car('5YJ3E1EA0PF000002', snap(2))];
     const after = removeCar(cars, '5YJ3E1EA0PF000001');
     expect(after.map((c) => c.vin)).toEqual(['5YJ3E1EA0PF000002']);
+  });
+});
+
+describe('reorderCars', () => {
+  const list = (): SavedCars => [
+    car('5YJ3E1EA0PF000001', snap(1)),
+    car('5YJ3E1EA0PF000002', snap(2)),
+    car('5YJ3E1EA0PF000003', snap(3)),
+  ];
+
+  it('moves an item toward the start', () => {
+    const after = reorderCars(list(), 2, 0);
+    expect(after.map((c) => c.vin)).toEqual([
+      '5YJ3E1EA0PF000003',
+      '5YJ3E1EA0PF000001',
+      '5YJ3E1EA0PF000002',
+    ]);
+  });
+
+  it('moves an item toward the end', () => {
+    const after = reorderCars(list(), 0, 2);
+    expect(after.map((c) => c.vin)).toEqual([
+      '5YJ3E1EA0PF000002',
+      '5YJ3E1EA0PF000003',
+      '5YJ3E1EA0PF000001',
+    ]);
+  });
+
+  it('returns the same reference when from === to', () => {
+    const cars = list();
+    expect(reorderCars(cars, 1, 1)).toBe(cars);
+  });
+
+  it('returns the same reference for out-of-bounds indices', () => {
+    const cars = list();
+    expect(reorderCars(cars, -1, 1)).toBe(cars);
+    expect(reorderCars(cars, 1, 99)).toBe(cars);
+    expect(reorderCars(cars, 99, 0)).toBe(cars);
   });
 });
 
