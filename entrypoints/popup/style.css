@@ -346,7 +346,7 @@ button.link:hover {
   background: transparent;
   border: none;
   color: var(--muted);
-  padding: 2px;
+  padding: 0;
   line-height: 0;
   cursor: grab;
   flex: 0 0 auto;
