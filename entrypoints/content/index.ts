@@ -2,7 +2,12 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 import { browser } from 'wxt/browser';
 import { highlightingEnabledItem, rulesItem, savedCarsItem } from '../../src/storage';
 import { evalRules, type Rules } from '../../src/rules';
-import { extractVin, extractVinFromOrderPath } from '../../src/vin';
+import {
+  extractVin,
+  extractVinFromOrderPath,
+  isUsedInventoryPath,
+  isUsedOrderUrl,
+} from '../../src/vin';
 import { decodeTeslaVin, type TeslaModel } from '../../src/decoder';
 import {
   addCar,
@@ -149,6 +154,11 @@ export default defineContentScript({
 
     const clearGlows = () => {
       document.querySelectorAll<HTMLElement>('.tih-glow').forEach((el) => setGlow(el, null));
+    };
+
+    const clearMonitorUi = () => {
+      clearGlows();
+      document.querySelectorAll('.tih-monitor-btn').forEach((el) => el.remove());
     };
 
     const applyInventory = () => {
@@ -300,13 +310,21 @@ export default defineContentScript({
       const path = location.pathname;
       // Match both `/inventory/...` (US) and `/<locale>/inventory/...` (e.g. `/en_CA/inventory/...`).
       if (/(^|\/)inventory\//.test(path)) {
-        applyInventory();
-        injectInventoryButtons();
+        if (isUsedInventoryPath(path)) {
+          applyInventory();
+          injectInventoryButtons();
+        } else {
+          clearMonitorUi();
+        }
         return;
       }
       if (/\/order\/[A-Za-z0-9]+/.test(path)) {
-        applyOrder();
-        injectOrderButton();
+        if (isUsedOrderUrl(location.href)) {
+          applyOrder();
+          injectOrderButton();
+        } else {
+          clearMonitorUi();
+        }
         return;
       }
     };
