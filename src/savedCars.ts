@@ -180,6 +180,18 @@ export function parseMileage(text: string): { value: number | null; unit: 'mi' |
   return fallback ?? { value: null, unit: null };
 }
 
+// Trim line from a listing card or order page, e.g. "Long Range All-Wheel Drive"
+// or "Premium All-Wheel Drive". Newer Model Y trims use Premium (and Performance);
+// older ones use Standard/Long Range. Bare "All-Wheel Drive" / "Rear-Wheel Drive"
+// is the non-premium base and must stay distinct from "Premium …".
+const TRIM_RE =
+  /(?:(?:Standard Range|Long Range|Performance|Premium)\s+)?(?:All-Wheel Drive|Rear-Wheel Drive)/i;
+
+export function parseTrim(text: string): string | null {
+  const m = (text ?? '').match(TRIM_RE);
+  return m ? m[0].replace(/\s+/g, ' ').trim() : null;
+}
+
 export function makeSnapshot(
   price: number | null,
   currency: string | null,

@@ -15,6 +15,7 @@ import {
   makeSnapshot,
   parseMileage,
   parsePrice,
+  parseTrim,
   pickBestPrice,
   removeCar,
 } from '../../src/savedCars';
@@ -53,9 +54,6 @@ const UNAVAILABLE_MARKERS = [
   'has been sold',
 ];
 
-const TRIM_RE =
-  /(?:Standard Range|Long Range|Performance)\s+(?:All-Wheel Drive|Rear-Wheel Drive)|All-Wheel Drive|Rear-Wheel Drive/i;
-
 // Scrape a price scoped to `root` so saving from an inventory card reads that
 // card's price (not the whole page). Prefers Tesla's dedicated price element,
 // else picks the real purchase price out of the text (ignoring "Reduced by",
@@ -70,8 +68,7 @@ function scrapePriceIn(root: HTMLElement): { value: number | null; currency: str
 }
 
 function scrapeTrim(root: HTMLElement): string | null {
-  const m = (root.textContent ?? '').match(TRIM_RE);
-  return m ? m[0].replace(/\s+/g, ' ').trim() : null;
+  return parseTrim(root.textContent ?? '');
 }
 
 const cleanPaintName = (raw: string | null | undefined): string | null => {

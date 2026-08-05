@@ -14,6 +14,7 @@ import {
   MAX_SAVED_CARS,
   parseMileage,
   parsePrice,
+  parseTrim,
   pickBestPrice,
   removeCar,
   reorderCars,
@@ -109,6 +110,36 @@ describe('parsePrice', () => {
   it('returns null value for unparseable text', () => {
     expect(parsePrice('Coming soon')).toEqual({ value: null, currency: null });
     expect(parsePrice('')).toEqual({ value: null, currency: null });
+  });
+});
+
+describe('parseTrim', () => {
+  it('keeps Premium with the drive type (2025+ Model Y)', () => {
+    expect(parseTrim('Premium All-Wheel Drive $47,200 2026 Pre-Owned')).toBe(
+      'Premium All-Wheel Drive',
+    );
+  });
+
+  it('keeps Performance and Long Range trims', () => {
+    expect(parseTrim('Long Range All-Wheel Drive')).toBe('Long Range All-Wheel Drive');
+    expect(parseTrim('Performance All-Wheel Drive')).toBe('Performance All-Wheel Drive');
+    expect(parseTrim('Standard Range Rear-Wheel Drive')).toBe('Standard Range Rear-Wheel Drive');
+  });
+
+  it('treats bare drive type as its own non-premium trim', () => {
+    expect(parseTrim('All-Wheel Drive $45,000')).toBe('All-Wheel Drive');
+    expect(parseTrim('Rear-Wheel Drive')).toBe('Rear-Wheel Drive');
+  });
+
+  it('reads the trim from a crowded listing blob', () => {
+    expect(
+      parseTrim('Reduced by $1,400 Premium All-Wheel Drive $47,200 2026 Pre-Owned'),
+    ).toBe('Premium All-Wheel Drive');
+  });
+
+  it('returns null when no drive type is present', () => {
+    expect(parseTrim('Model Y $47,200')).toBeNull();
+    expect(parseTrim('')).toBeNull();
   });
 });
 
