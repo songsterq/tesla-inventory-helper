@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatCarName, formatCarSubLine, formatHistoryTime, formatHistoryValue, formatPrice, priceSymbol } from '../src/format';
+import {
+  abbreviateTrim,
+  formatCarName,
+  formatCarSubLine,
+  formatHistoryTime,
+  formatHistoryValue,
+  formatPrice,
+  priceSymbol,
+} from '../src/format';
 import type { CarSnapshot, SavedCar } from '../src/savedCars';
 
 function snap(overrides: Partial<CarSnapshot> = {}): CarSnapshot {
@@ -47,9 +55,23 @@ describe('formatPrice', () => {
   });
 });
 
+describe('abbreviateTrim', () => {
+  it('shortens common drive and range phrases', () => {
+    expect(abbreviateTrim('Long Range All-Wheel Drive')).toBe('LR AWD');
+    expect(abbreviateTrim('Long Range Rear-Wheel Drive')).toBe('LR RWD');
+    expect(abbreviateTrim('Premium All-Wheel Drive')).toBe('Premium AWD');
+    expect(abbreviateTrim('Performance All-Wheel Drive')).toBe('Performance AWD');
+  });
+
+  it('is case-insensitive and leaves unknown phrases alone', () => {
+    expect(abbreviateTrim('long range rear-wheel drive')).toBe('LR RWD');
+    expect(abbreviateTrim('Standard Range')).toBe('Standard Range');
+  });
+});
+
 describe('formatCarName', () => {
-  it('joins year, model, trim', () => {
-    expect(formatCarName(makeCar())).toBe('2024 Model Y Long Range All-Wheel Drive');
+  it('joins year, model, and abbreviated trim', () => {
+    expect(formatCarName(makeCar())).toBe('2024 Model Y LR AWD');
   });
   it('falls back to the VIN when name fields are all null', () => {
     expect(formatCarName(makeCar({ modelYear: null, model: null, trim: null }))).toBe(

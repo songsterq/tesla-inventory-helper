@@ -25,9 +25,26 @@ export function formatPrice(s: CarSnapshot): string {
   return `${priceSymbol(s.currency)}${s.price.toLocaleString()}`;
 }
 
-// Title line, e.g. "2024 Model Y Long Range All-Wheel Drive"; VIN when unknown.
+// Common Tesla trim phrases → short forms so titles fit the popup/notification width.
+// Applied at display time only; stored `trim` stays full-length.
+const TRIM_ABBREVS: [RegExp, string][] = [
+  [/\bAll-Wheel Drive\b/gi, 'AWD'],
+  [/\bRear-Wheel Drive\b/gi, 'RWD'],
+  [/\bLong Range\b/gi, 'LR'],
+];
+
+export function abbreviateTrim(trim: string): string {
+  let out = trim;
+  for (const [re, abbr] of TRIM_ABBREVS) {
+    out = out.replace(re, abbr);
+  }
+  return out;
+}
+
+// Title line, e.g. "2024 Model Y LR AWD"; VIN when unknown.
 export function formatCarName(car: SavedCar): string {
-  return [car.modelYear, car.model, car.trim].filter(Boolean).join(' ') || car.vin;
+  const trim = car.trim ? abbreviateTrim(car.trim) : null;
+  return [car.modelYear, car.model, trim].filter(Boolean).join(' ') || car.vin;
 }
 
 // Sub-line, e.g. "Stealth Grey · 42,000 mi · HW4"; parts drop out when absent.
