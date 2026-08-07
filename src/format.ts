@@ -26,13 +26,19 @@ export function formatPrice(s: CarSnapshot): string {
 }
 
 // Common Tesla trim phrases → short forms so titles fit the popup/notification width.
-// Applied at display time only; stored `trim` stays full-length.
-const TRIM_ABBREVS: [RegExp, string][] = [
-  [/\bAll-Wheel Drive\b/gi, 'AWD'],
-  [/\bRear-Wheel Drive\b/gi, 'RWD'],
-  [/\bLong Range\b/gi, 'LR'],
-];
+// Applied at display time only; stored `trim` stays full-length. Each phrase occurs
+// at most once in a trim, so these are deliberately non-global: a shared /g regex
+// carries `lastIndex` between calls and misbehaves the moment anyone reaches for
+// `.test()` instead of `.replace()`.
+const TRIM_ABBREVS = [
+  [/\bAll-Wheel Drive\b/i, 'AWD'],
+  [/\bRear-Wheel Drive\b/i, 'RWD'],
+  [/\bLong Range\b/i, 'LR'],
+  [/\bStandard Range\b/i, 'SR'],
+] as const satisfies ReadonlyArray<readonly [RegExp, string]>;
 
+// Idempotent: abbreviating an already-abbreviated trim is a no-op, since no short
+// form contains a phrase from the table. Keep it that way when adding rules.
 export function abbreviateTrim(trim: string): string {
   let out = trim;
   for (const [re, abbr] of TRIM_ABBREVS) {
@@ -43,7 +49,17 @@ export function abbreviateTrim(trim: string): string {
 
 // Title line, e.g. "2024 Model Y LR AWD"; VIN when unknown.
 export function formatCarName(car: SavedCar): string {
-  const trim = car.trim ? abbreviateTrim(car.trim) : null;
+  return joinCarName(car, car.trim ? abbreviateTrim(car.trim) : null);
+}
+
+// Same title with the trim spelled out, e.g. "2024 Model Y Long Range All-Wheel
+// Drive". For accessible names and tooltips: the abbreviations solve a visual
+// width problem screen readers don't have, and they read poorly aloud ("LR AWD").
+export function formatCarNameFull(car: SavedCar): string {
+  return joinCarName(car, car.trim);
+}
+
+function joinCarName(car: SavedCar, trim: string | null): string {
   return [car.modelYear, car.model, trim].filter(Boolean).join(' ') || car.vin;
 }
 

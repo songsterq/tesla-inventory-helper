@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   abbreviateTrim,
   formatCarName,
+  formatCarNameFull,
   formatCarSubLine,
   formatHistoryTime,
   formatHistoryValue,
@@ -63,9 +64,32 @@ describe('abbreviateTrim', () => {
     expect(abbreviateTrim('Performance All-Wheel Drive')).toBe('Performance AWD');
   });
 
+  it('shortens Standard Range alongside Long Range', () => {
+    expect(abbreviateTrim('Standard Range Rear-Wheel Drive')).toBe('SR RWD');
+    expect(abbreviateTrim('Standard Range')).toBe('SR');
+  });
+
   it('is case-insensitive and leaves unknown phrases alone', () => {
     expect(abbreviateTrim('long range rear-wheel drive')).toBe('LR RWD');
-    expect(abbreviateTrim('Standard Range')).toBe('Standard Range');
+    expect(abbreviateTrim('Cyberbeast')).toBe('Cyberbeast');
+  });
+
+  // Guards against a future rule (say Range → R) that would chew through text it
+  // had already shortened. Also covers the shared regexes not carrying lastIndex.
+  it('is idempotent', () => {
+    for (const trim of [
+      'Long Range All-Wheel Drive',
+      'Standard Range Rear-Wheel Drive',
+      'Premium All-Wheel Drive',
+    ]) {
+      const once = abbreviateTrim(trim);
+      expect(abbreviateTrim(once)).toBe(once);
+    }
+  });
+
+  it('gives the same result when called repeatedly', () => {
+    expect(abbreviateTrim('Long Range All-Wheel Drive')).toBe('LR AWD');
+    expect(abbreviateTrim('Long Range All-Wheel Drive')).toBe('LR AWD');
   });
 });
 
@@ -75,6 +99,22 @@ describe('formatCarName', () => {
   });
   it('falls back to the VIN when name fields are all null', () => {
     expect(formatCarName(makeCar({ modelYear: null, model: null, trim: null }))).toBe(
+      '7SAYGDEE5PF789500',
+    );
+  });
+});
+
+describe('formatCarNameFull', () => {
+  // The popup uses this for aria-labels and the title tooltip: abbreviations fix a
+  // visual width problem screen readers don't have, and "LR AWD" reads badly aloud.
+  it('spells the trim out', () => {
+    expect(formatCarNameFull(makeCar())).toBe('2024 Model Y Long Range All-Wheel Drive');
+    expect(formatCarNameFull(makeCar({ trim: 'Standard Range Rear-Wheel Drive' }))).toBe(
+      '2024 Model Y Standard Range Rear-Wheel Drive',
+    );
+  });
+  it('falls back to the VIN like the short form does', () => {
+    expect(formatCarNameFull(makeCar({ modelYear: null, model: null, trim: null }))).toBe(
       '7SAYGDEE5PF789500',
     );
   });
