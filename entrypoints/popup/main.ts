@@ -20,6 +20,7 @@ import {
 } from '../../src/savedCars';
 import {
   formatCarName,
+  formatCarNameFull,
   formatCarSubLine,
   formatHistoryTime,
   formatHistoryValue,
@@ -252,6 +253,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   title.rel = 'noopener noreferrer';
   title.draggable = false;
   title.textContent = formatCarName(car);
+  title.title = formatCarNameFull(car); // hover reveals the trim spelled out
   info.append(title);
 
   const sub = document.createElement('span');
@@ -286,7 +288,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   handle.type = 'button';
   handle.draggable = true;
   handle.tabIndex = -1;
-  handle.setAttribute('aria-label', `Reorder ${formatCarName(car)}`);
+  handle.setAttribute('aria-label', `Reorder ${formatCarNameFull(car)}`);
   handle.title = 'Drag to reorder';
   handle.innerHTML = GRIP_SVG;
 
@@ -347,7 +349,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   if (timeline.length >= 2) {
     const panelId = `history-${car.vin}`;
 
-    const carName = formatCarName(car);
+    const carName = formatCarNameFull(car); // accessible name, so spell the trim out
 
     const toggle = document.createElement('button');
     toggle.className = 'saved-car-toggle';
