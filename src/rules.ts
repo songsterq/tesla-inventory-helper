@@ -111,6 +111,44 @@ function parseCondition(
   return { ok: false, error: `${where}: "type" must be "chars" or "number".` };
 }
 
+// Structural equality, used to tell "this user saved an untouched copy of the
+// defaults" from "this user has real customizations". Deliberately not a
+// JSON.stringify comparison: that is sensitive to key order, and stored rules
+// have been through parseRules while the constants they're compared against
+// are hand-written literals.
+export function rulesEqual(a: Rules, b: Rules): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((rule, i) => {
+    const other = b[i];
+    if (other === undefined) return false;
+    if (rule.name !== other.name) return false;
+    if (rule.conditions.length !== other.conditions.length) return false;
+    return rule.conditions.every((c, j) => {
+      const otherCondition = other.conditions[j];
+      return otherCondition !== undefined && conditionsEqual(c, otherCondition);
+    });
+  });
+}
+
+function conditionsEqual(a: Condition, b: Condition): boolean {
+  if (a.type !== b.type) return false;
+  if (a.type === 'chars') {
+    const other = b as CharsCondition;
+    if (a.pos !== other.pos || a.op !== other.op) return false;
+    if (Array.isArray(a.value) !== Array.isArray(other.value)) return false;
+    if (Array.isArray(a.value) && Array.isArray(other.value)) {
+      return (
+        a.value.length === other.value.length && a.value.every((v, i) => v === other.value[i])
+      );
+    }
+    return a.value === other.value;
+  }
+  const other = b as NumberCondition;
+  return (
+    a.from === other.from && a.to === other.to && a.op === other.op && a.value === other.value
+  );
+}
+
 export function evalRules(vin: string, rules: Rules): Rule | null {
   for (const rule of rules) {
     if (rule.conditions.every((c) => evalCondition(vin, c))) return rule;

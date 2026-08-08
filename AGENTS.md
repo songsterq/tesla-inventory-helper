@@ -60,6 +60,17 @@ Condition types:
 - **Model 3 is HW4 only from 2024**, and has no 2023 rule at all. There's no community-pinned 2023 serial for the 3 line: most 2023 Model 3s are pre-Highland HW3, and while Highland (from ~late 2023) shipped HW4, the changeover doesn't map cleanly onto a serial. `789500` is a **Model Y** number and must never be applied to the 3 line — an earlier version of these rules left the Fremont rule unscoped, which silently did exactly that. The known cost is that a 2023 Highland Model 3 won't glow; that's the deliberate trade, since the alternative false-positives every pre-Highland 2023 Model 3 above the cutoff.
 - The rules mirror that table one-for-one: `HW4 Model Y Fremont 2023`, `HW4 Model Y Austin 2023`, `HW4 Model S Fremont 2023`, `HW4 Model X Fremont 2023`. Names carry the model because they show on the Track/highlight badge.
 - The same thresholds live in `HW4_SERIAL_2023` in `src/decoder.ts`, which drives the third-party popover's HW guess, and the gaps in that table are load-bearing: a missing entry (Model 3 anywhere, anything at Berlin/Shanghai) yields `Unknown` rather than a guess. **Keep it in sync with the rules** — otherwise the same VIN can glow as a match on Tesla.com while the popover calls it HW3.
+
+## Re-seeding stored rules
+
+`rulesItem` uses `fallback`, and nothing writes on first run — `setValue` fires only on the popup's Save and Reset. So a user who never opened the rules editor has **no stored value** and picks up new defaults automatically on update. Only users who explicitly saved hold a private copy.
+
+To push a corrected default to those users, bump `version` on `rulesItem` and add a migration:
+
+- `migrateRulesToV2` in `src/defaultRules.ts` is the template. It replaces the stored value **only** when it's structurally equal to a frozen snapshot of the previous defaults; customizations and unparseable values pass through untouched. A migration must never be the thing that destroys someone's rules.
+- Each bump needs its own frozen `V<n>_DEFAULT_RULES` snapshot. These are history — don't edit them to match current rules, and keep their WMI lists inlined so editing `TESLA_WMIS` can't retroactively rewrite what an old version looked like.
+- Compare with `rulesEqual` (`src/rules.ts`), not `JSON.stringify`: stored values have been through `parseRules` and the snapshots are hand-written literals, so key order won't match.
+- `@wxt-dev/storage` runs migrations inside `defineItem`, at module load in **every** context that imports `src/storage.ts` — not from a single `onInstalled` hook. Concurrent runs are fine (pure transform, idempotent version write), but the call is fire-and-forget, so a throw surfaces only as a `console.error`.
 - Berlin/Shanghai 2023 transition rules were intentionally removed — no reliable community-pinned threshold. The 2024+ catch-all still covers those plants for newer cars.
 
 ## Third-party popover
