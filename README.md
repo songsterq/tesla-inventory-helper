@@ -27,7 +27,7 @@ npx wxt zip          # Chrome Web Store zip under .output/
 
 Stack: [WXT](https://wxt.dev/) (MV3), TypeScript, Vitest.
 
-For architecture notes, the rule engine, allowlist sync, and release checklist, see [`AGENTS.md`](./AGENTS.md).
+Want to fix a bug or propose a change? See [`CONTRIBUTING.md`](./CONTRIBUTING.md). For architecture notes, the rule engine, allowlist sync, and release checklist, see [`AGENTS.md`](./AGENTS.md).
 
 ## Privacy
 
