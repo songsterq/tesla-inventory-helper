@@ -113,7 +113,7 @@ export function decodeTeslaVin(input: string): TeslaVinInfo | null {
   const modelYear = decodeYear(vin.charAt(9));
   const serial = decodeSerial(vin.slice(11));
   const drivetrain = decodeDrivetrain(vin, model);
-  const likelyHw = guessHardware(plant, modelYear, serial);
+  const likelyHw = guessHardware(model, plant, modelYear, serial);
 
   return { vin, model, modelYear, plant, serial, drivetrain, likelyHw };
 }
@@ -141,7 +141,23 @@ function decodeSerial(tail: string): number | null {
   return parseInt(tail, 10);
 }
 
+// 2023 transition serials, keyed by model line then plant. Tesla numbers each
+// line separately, so these are not comparable to each other: S and X switched
+// over in early 2023, while the Y line didn't switch until that May, by which
+// point it had run far higher serials. Community-pinned; see AGENTS.md.
+//
+// Every gap here is deliberate, and each one means 'Unknown' rather than a
+// guess: Model 3 has no pinned 2023 cutoff at all (the Highland changeover
+// doesn't map cleanly to a serial), and Berlin / Shanghai have none for any
+// model.
+const HW4_SERIAL_2023: Partial<Record<TeslaModel, Partial<Record<TeslaPlant, number>>>> = {
+  'Model S': { Fremont: 510000 },
+  'Model X': { Fremont: 385000 },
+  'Model Y': { Fremont: 789500, Austin: 131200 },
+};
+
 function guessHardware(
+  model: TeslaModel | null,
   plant: TeslaPlant | null,
   year: number | null,
   serial: number | null,
@@ -149,15 +165,10 @@ function guessHardware(
   if (year === null) return 'Unknown';
   if (year >= 2024) return 'HW4';
   if (year <= 2022) return 'HW3';
-  // year === 2023: hardware transitioned mid-year; depends on plant + serial.
-  if (plant === 'Fremont') {
-    if (serial === null) return 'Unknown';
-    return serial >= 789500 ? 'HW4' : 'HW3';
-  }
-  if (plant === 'Austin') {
-    if (serial === null) return 'Unknown';
-    return serial >= 131200 ? 'HW4' : 'HW3';
-  }
-  // Berlin / Shanghai 2023 transition serials are not yet community-pinned.
-  return 'Unknown';
+  // year === 2023: hardware transitioned mid-year; depends on model + plant +
+  // serial.
+  if (model === null || plant === null || serial === null) return 'Unknown';
+  const cutoff = HW4_SERIAL_2023[model]?.[plant];
+  if (cutoff === undefined) return 'Unknown';
+  return serial >= cutoff ? 'HW4' : 'HW3';
 }

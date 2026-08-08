@@ -49,16 +49,40 @@ describe('evalRules with default seed rules', () => {
 
   it('matches a 2023 Fremont VIN at the cutoff', () => {
     const hit = evalRules('7SAYGDEE5PF789500', defaultRules);
-    expect(hit?.name).toBe('HW4 Fremont 2023+');
+    expect(hit?.name).toBe('HW4 Model Y Fremont 2023');
+  });
+
+  // Model 3 is HW4 only from 2024 — the Fremont cutoff is a Model Y serial and
+  // must not be applied to the 3 line, however high the serial runs.
+  it('never matches a 2023 Model 3, at any serial', () => {
+    expect(evalRules('5YJ3E1EA1PF800000', defaultRules)).toBeNull();
+    expect(evalRules('5YJ3E1EA1PF999999', defaultRules)).toBeNull();
+    expect(evalRules('5YJ3E1EA1PA999999', defaultRules)).toBeNull();
+  });
+
+  it('matches a 2024 Model 3', () => {
+    expect(evalRules('5YJ3E1EA1RF000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
   });
 
   it('matches a 2023 Austin VIN above the cutoff', () => {
     const hit = evalRules('7SAYGAEE2PA200000', defaultRules);
-    expect(hit?.name).toBe('HW4 Austin 2023+');
+    expect(hit?.name).toBe('HW4 Model Y Austin 2023');
   });
 
   it('skips a 2023 Austin VIN below the cutoff', () => {
     expect(evalRules('7SAYGAEE2PA100000', defaultRules)).toBeNull();
+  });
+
+  // S and X have their own, much lower serial sequences — the generic Fremont
+  // cutoff of 789500 must not be applied to them, in either direction.
+  it('matches 2023 Fremont Model S / X on their own cutoffs', () => {
+    expect(evalRules('5YJSA1E50PF510000', defaultRules)?.name).toBe('HW4 Model S Fremont 2023');
+    expect(evalRules('5YJXCBE21PF385000', defaultRules)?.name).toBe('HW4 Model X Fremont 2023');
+  });
+
+  it('skips 2023 Fremont Model S / X below their cutoffs', () => {
+    expect(evalRules('5YJSA1E50PF509999', defaultRules)).toBeNull();
+    expect(evalRules('5YJXCBE21PF384999', defaultRules)).toBeNull();
   });
 
   it('matches a 2024 Tesla VIN via the generic 2024+ rule (early exit)', () => {

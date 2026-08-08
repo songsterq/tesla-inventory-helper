@@ -46,8 +46,20 @@ Condition types:
 
 ## Default rules — invariants
 
-- `HW4 (any 2024+)` must keep its `in` check against Tesla WMIs (`5YJ`, `7SA`, `LRW`, `XP7`) so non-Tesla VINs with `pos 10 > P` don't false-match.
-- Fremont 2023 HW4 cutoff: serial `>= 789500`. Austin 2023: `>= 131200`. Community-pinned.
+- `HW4 (any 2024+)` must keep its `in` check against Tesla WMIs (`5YJ`, `7SA`, `LRW`, `XP7`) so non-Tesla VINs with `pos 10 > P` don't false-match. It stays deliberately model-agnostic (no `pos 4` condition) so a new model line is covered the year it ships.
+- 2023 is the transition year and needs a serial cutoff. **Tesla numbers each model line separately, so these numbers are not comparable to each other** — a Model X serial and a Model Y serial from the same plant and week are nowhere near each other. Community-pinned:
+
+  | Model | Plant | Cutoff | Community range |
+  |-------|-------|--------|-----------------|
+  | Y | Fremont | `>= 789500` | ~790000–800000 (late May 2023) |
+  | Y | Austin | `>= 131200` | ~127000–131000 (late May 2023) |
+  | S | Fremont | `>= 510000` | ~501000–502000 (Jan 2023) |
+  | X | Fremont | `>= 385000` | ~370000–380000 (mid-Jan 2023) |
+
+  S and X switched over in early 2023, when those lines were still in the 3xx–5xx,xxx range; the Y line didn't switch until that May, by which point it had run past 789xxx. Each cutoff sits at or just above the top of its reported range: transitions were gradual, so erring high trades a few missed HW4 cars for not glowing an HW3 car as a match. **Every 2023 rule is scoped with a `pos 4` model check** — a cutoff from one line is meaningless on another.
+- **Model 3 is HW4 only from 2024**, and has no 2023 rule at all. There's no community-pinned 2023 serial for the 3 line: most 2023 Model 3s are pre-Highland HW3, and while Highland (from ~late 2023) shipped HW4, the changeover doesn't map cleanly onto a serial. `789500` is a **Model Y** number and must never be applied to the 3 line — an earlier version of these rules left the Fremont rule unscoped, which silently did exactly that. The known cost is that a 2023 Highland Model 3 won't glow; that's the deliberate trade, since the alternative false-positives every pre-Highland 2023 Model 3 above the cutoff.
+- The rules mirror that table one-for-one: `HW4 Model Y Fremont 2023`, `HW4 Model Y Austin 2023`, `HW4 Model S Fremont 2023`, `HW4 Model X Fremont 2023`. Names carry the model because they show on the Track/highlight badge.
+- The same thresholds live in `HW4_SERIAL_2023` in `src/decoder.ts`, which drives the third-party popover's HW guess, and the gaps in that table are load-bearing: a missing entry (Model 3 anywhere, anything at Berlin/Shanghai) yields `Unknown` rather than a guess. **Keep it in sync with the rules** — otherwise the same VIN can glow as a match on Tesla.com while the popover calls it HW3.
 - Berlin/Shanghai 2023 transition rules were intentionally removed — no reliable community-pinned threshold. The 2024+ catch-all still covers those plants for newer cars.
 
 ## Third-party popover
