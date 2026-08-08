@@ -1,11 +1,26 @@
 import { storage } from 'wxt/utils/storage';
 import type { Rules } from './rules';
 import type { SavedCars } from './savedCars';
-import { defaultRules } from './defaultRules';
+import { defaultRules, migrateRulesToV2 } from './defaultRules';
 import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck';
 
+// v2 re-seeds users still holding an untouched copy of the v1 defaults, whose
+// 2023 cutoffs were wrong for Model S/X and Model 3; see migrateRulesToV2.
+// Custom rule sets are left alone.
+//
+// Note this migration runs at module load in *every* context that imports this
+// file (background, popup, both content scripts), not from a single onInstalled
+// hook — @wxt-dev/storage kicks it off inside defineItem. It's safe to run
+// concurrently: the transform is pure and the version write is idempotent. It's
+// also fire-and-forget, so a throw would only surface as a console.error, which
+// is why migrateRulesToV2 passes unrecognized values through instead of
+// rejecting them.
 export const rulesItem = storage.defineItem<Rules>('sync:rules', {
   fallback: defaultRules,
+  version: 2,
+  migrations: {
+    2: migrateRulesToV2,
+  },
 });
 
 export const highlightingEnabledItem = storage.defineItem<boolean>('sync:highlightingEnabled', {

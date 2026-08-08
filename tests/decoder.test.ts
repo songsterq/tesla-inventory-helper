@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeTeslaVin, findTeslaVins, isTeslaVin } from '../src/decoder';
+import { defaultRules } from '../src/defaultRules';
+import { evalRules } from '../src/rules';
 
 describe('isTeslaVin', () => {
   it('accepts known Tesla WMIs with valid VIN shape', () => {
@@ -134,13 +136,38 @@ describe('decodeTeslaVin — likely hardware', () => {
     expect(decodeTeslaVin('5YJ3E1EA1NF000001')?.likelyHw).toBe('HW3');
     expect(decodeTeslaVin('5YJ3E1EA1MF000001')?.likelyHw).toBe('HW3');
   });
-  it('uses serial threshold for Fremont 2023', () => {
-    expect(decodeTeslaVin('5YJ3E1EA1PF789499')?.likelyHw).toBe('HW3');
-    expect(decodeTeslaVin('5YJ3E1EA1PF789500')?.likelyHw).toBe('HW4');
+  it('uses serial threshold for Model Y Fremont 2023', () => {
+    expect(decodeTeslaVin('5YJYGDEE1PF789499')?.likelyHw).toBe('HW3');
+    expect(decodeTeslaVin('5YJYGDEE1PF789500')?.likelyHw).toBe('HW4');
   });
-  it('uses serial threshold for Austin 2023', () => {
+  it('uses serial threshold for Model Y Austin 2023', () => {
     expect(decodeTeslaVin('7SAYGDEE5PA131199')?.likelyHw).toBe('HW3');
     expect(decodeTeslaVin('7SAYGDEE5PA131200')?.likelyHw).toBe('HW4');
+  });
+  // Model 3 has no pinned 2023 cutoff. The Model Y serial must not stand in for
+  // one, in either direction — 2023 Model 3 is 'Unknown', not HW3 or HW4.
+  it('returns Unknown for a 2023 Model 3 at any serial', () => {
+    expect(decodeTeslaVin('5YJ3E1EA1PF789499')?.likelyHw).toBe('Unknown');
+    expect(decodeTeslaVin('5YJ3E1EA1PF800000')?.likelyHw).toBe('Unknown');
+    expect(decodeTeslaVin('5YJ3E1EA1PA999999')?.likelyHw).toBe('Unknown');
+  });
+  it('returns HW4 for a 2024 Model 3', () => {
+    expect(decodeTeslaVin('5YJ3E1EA1RF000001')?.likelyHw).toBe('HW4');
+  });
+  // S and X are numbered on their own lines and switched to HW4 months before
+  // the Y line did, at much lower serials.
+  it('uses per-model serial thresholds for Fremont 2023 S / X', () => {
+    expect(decodeTeslaVin('5YJSA1E50PF509999')?.likelyHw).toBe('HW3');
+    expect(decodeTeslaVin('5YJSA1E50PF510000')?.likelyHw).toBe('HW4');
+    expect(decodeTeslaVin('5YJXCBE21PF384999')?.likelyHw).toBe('HW3');
+    expect(decodeTeslaVin('5YJXCBE21PF385000')?.likelyHw).toBe('HW4');
+  });
+  it('agrees with the default highlight rules on 2023 Fremont S / X', () => {
+    // A VIN must never glow as a rule match while the popover calls it HW3.
+    for (const vin of ['5YJSA1E50PF550000', '5YJXCBE21PF400000']) {
+      expect(decodeTeslaVin(vin)?.likelyHw).toBe('HW4');
+      expect(evalRules(vin, defaultRules)).not.toBeNull();
+    }
   });
   it('returns Unknown for Berlin/Shanghai 2023 (no community-pinned threshold)', () => {
     expect(decodeTeslaVin('XP7YGCEE1PB050000')?.likelyHw).toBe('Unknown');
