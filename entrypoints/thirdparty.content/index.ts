@@ -5,6 +5,8 @@ import { mountBadge, unmountBadge, updateBadge } from './badge';
 
 const ALLOWLIST_MATCHES = [
   '*://*.autotrader.com/*',
+  '*://*.autocheck.com/*',
+  '*://*.carfax.com/*',
   '*://*.cargurus.com/*',
   '*://*.cars.com/*',
   '*://*.carvana.com/*',

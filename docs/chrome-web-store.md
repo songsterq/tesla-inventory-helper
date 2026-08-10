@@ -75,7 +75,7 @@ The justification form is reviewer-only, so it's safe to list specific hosts her
 > The extension reads page content on a fixed set of car-shopping sites in order to detect Tesla VINs and either highlight matching cars (on Tesla.com) or show a small VIN-decoder popover (on third-party listing sites). No network requests are made to these hosts; the extension only inspects the DOM in the user's own browser.
 >
 > - **tesla.com/inventory/\*, tesla.com/\*/inventory/\*, tesla.com/\*/order/\***: required to read VINs from Tesla's inventory cards and order pages (US and international locales) and apply the user's highlight rules to matching cars.
-> - **autotrader.com, cargurus.com, cars.com, carvana.com, carmax.com, truecar.com, edmunds.com, kbb.com, findmyelectric.com, onlyusedtesla.com**: required to scan each vehicle detail page for a Tesla VIN. When one is found, the extension displays a popover decoding the VIN's model, year, plant, build number, and likely Autopilot hardware version.
+> - **autotrader.com, autocheck.com, carfax.com, cargurus.com, cars.com, carvana.com, carmax.com, truecar.com, edmunds.com, kbb.com, findmyelectric.com, onlyusedtesla.com**: required to scan each vehicle detail page for a Tesla VIN. When one is found, the extension displays a popover decoding the VIN's model, year, plant, build number, and likely Autopilot hardware version.
 >
 > The extension does not request access to any host outside this list.
 
