@@ -28,7 +28,9 @@ export type SavedCar = {
   mileageUnit: 'mi' | 'km' | null; // display unit paired with `mileage`
   savedAt: number;
   baseline: CarSnapshot; // snapshot captured when the car was saved
-  latest: CarSnapshot; // most recent observation (== baseline until first check)
+  // Most recent REAL observation (== baseline until first successful check).
+  // 'unknown' (failed-scrape) results never land here — see applyCheckResult.
+  latest: CarSnapshot;
   history: CarSnapshot[]; // bounded ring of distinct observations, newest last
   lastChange: ChangeKind; // result of the most recent diff; drives badge + UI
   lastCheckedAt: number | null;
@@ -301,7 +303,12 @@ export function applyCheckResult(car: SavedCar, snapshot: CarSnapshot): SavedCar
   const change = diffSnapshot(car.latest, snapshot);
   return {
     ...car,
-    latest: snapshot,
+    // An 'unknown' result is a measurement gap, not an observation: keep the
+    // last real snapshot so (a) the popup never blanks the price to "—" after
+    // one flaky scheduled check, and (b) the next successful check still diffs
+    // against a real price — otherwise a drop spanning the gap would compare
+    // against null and never be detected or notified.
+    latest: snapshot.availability === 'unknown' ? car.latest : snapshot,
     history: appendHistory(car.history, snapshot),
     lastChange: change,
     lastCheckedAt: snapshot.at,

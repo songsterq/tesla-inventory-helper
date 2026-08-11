@@ -397,20 +397,23 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
 }
 
 // The compact second line under the price: a signed delta, "Sold", or a muted
-// "No change" / "Not checked".
+// "No change" / "Not checked". The delta is always current price vs the price
+// when the car was saved — a stable fact about the car, NOT gated on
+// `lastChange` (which is per-check and only drives the badge/notifications).
+// Gating on lastChange used to make the line flicker: a run that observed a
+// movement showed the delta, and the very next re-check diffed "no change
+// since a minute ago" and hid it again.
 function statusLine(car: SavedCar): { text: string; cls: string } {
-  if (car.lastChange === 'gone') return { text: 'Sold', cls: 'gone' };
-  if (car.lastChange === 'price-drop' || car.lastChange === 'price-rise') {
-    const a = car.baseline.price;
-    const b = car.latest.price;
-    if (a !== null && b !== null && a !== b) {
-      const diff = b - a;
-      const sym = priceSymbol(car.latest.currency);
-      return {
-        text: `${diff < 0 ? '−' : '+'}${sym}${Math.abs(diff).toLocaleString()}`,
-        cls: diff < 0 ? 'down' : 'up',
-      };
-    }
+  if (car.latest.availability === 'unavailable') return { text: 'Sold', cls: 'gone' };
+  const a = car.baseline.price;
+  const b = car.latest.price;
+  if (a !== null && b !== null && a !== b) {
+    const diff = b - a;
+    const sym = priceSymbol(car.latest.currency);
+    return {
+      text: `${diff < 0 ? '−' : '+'}${sym}${Math.abs(diff).toLocaleString()}`,
+      cls: diff < 0 ? 'down' : 'up',
+    };
   }
   // Before the first check, say nothing — "No change" only appears once checked.
   return car.lastCheckedAt === null
