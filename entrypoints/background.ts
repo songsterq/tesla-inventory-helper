@@ -16,7 +16,7 @@ import { buildChangeNotification, toRunChange, type ChangeNotification, type Run
 
 const BADGE_COLOR = '#e82127';
 const SCRAPE_INTERVAL_MS = 750;
-const PER_CAR_TIMEOUT_MS = 20_000;
+const PER_CAR_TIMEOUT_MS = 30_000;
 const KEEPALIVE_MS = 20_000;
 const AUTO_CHECK_ALARM = 'tih:auto-check';
 

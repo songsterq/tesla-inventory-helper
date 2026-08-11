@@ -354,6 +354,29 @@ describe('applyCheckResult', () => {
     expect(c.history.at(-1)?.availability).toBe('available');
   });
 
+  it('preserves the last real snapshot through an unknown check (no "—" price)', () => {
+    let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(null, 'unknown', 200));
+    expect(c.latest.price).toBe(42990);
+    expect(c.latest.availability).toBe('available');
+    expect(c.lastCheckedAt).toBe(200);
+  });
+
+  it('detects a price drop that spans a failed (unknown) check', () => {
+    let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(null, 'unknown', 200));
+    c = applyCheckResult(c, snap(41990, 'available', 300));
+    expect(c.lastChange).toBe('price-drop');
+    expect(c.acknowledged).toBe(false);
+  });
+
+  it('keeps a sold car sold through a later unknown check', () => {
+    let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
+    c = applyCheckResult(c, snap(null, 'unavailable', 200));
+    c = applyCheckResult(c, snap(null, 'unknown', 300));
+    expect(c.latest.availability).toBe('unavailable');
+  });
+
   it('still appends a real price change after an unknown check', () => {
     let c = car('7SAYGDEE5PF789500', snap(42990, 'available', 100));
     c = applyCheckResult(c, snap(null, 'unknown', 200));
