@@ -158,10 +158,19 @@ export default defineContentScript({
       document.querySelectorAll('.tih-monitor-btn').forEach((el) => el.remove());
     };
 
+    // Tesla nests two `article[data-id]` elements per car: an outer wrapper with
+    // `display: contents` (no box at all) around the real card. Decorating the
+    // wrapper is what produced stray pills in the page corners — with no box, its
+    // `position: relative` is a no-op and our absolutely-positioned overlays
+    // resolve against the initial containing block instead. Keep only the
+    // innermost article, which is the one that actually lays out.
+    const inventoryCards = (): HTMLElement[] =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>('main.inventory-content-wrapper article[data-id]'),
+      ).filter((article) => !article.querySelector('article[data-id]'));
+
     const applyInventory = () => {
-      const articles = document.querySelectorAll<HTMLElement>(
-        'main.inventory-content-wrapper article[data-id]',
-      );
+      const articles = inventoryCards();
       if (!highlightingEnabled) {
         articles.forEach((article) => setGlow(article, null));
         return;
@@ -276,7 +285,12 @@ export default defineContentScript({
       mileageText?: () => string,
     ) => {
       if (host.querySelector('.tih-monitor-btn')) return;
-      if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+      // A `display: contents` host generates no box, so it can never be the
+      // containing block for the button — the overlay would escape to the page
+      // corner. Skip rather than render something misplaced.
+      const style = getComputedStyle(host);
+      if (style.display === 'contents') return;
+      if (style.position === 'static') host.style.position = 'relative';
       const btn = createMonitorButton(vin, host, urlFor, mileageText);
       btn.classList.add('tih-monitor-card');
       host.appendChild(btn);
@@ -293,10 +307,7 @@ export default defineContentScript({
     };
 
     const injectInventoryButtons = () => {
-      const articles = document.querySelectorAll<HTMLElement>(
-        'main.inventory-content-wrapper article[data-id]',
-      );
-      articles.forEach((article) => {
+      inventoryCards().forEach((article) => {
         const vin = extractVin(article.getAttribute('data-id'));
         if (!vin) return;
         attachMonitorButton(article, vin, () => resolveInventoryUrl(article, vin));
