@@ -1,6 +1,6 @@
 import { parseRules, rulesEqual, type Rules } from './rules';
 
-const TESLA_WMIS = ['5YJ', '7SA', 'LRW', 'XP7'];
+const TESLA_WMIS = ['5YJ', '7SA', 'LRW', 'XP7', '7G2'];
 
 export const defaultRules: Rules = [
   {
@@ -100,5 +100,67 @@ const V1_DEFAULT_RULES: Rules = [
 export function migrateRulesToV2(stored: unknown): Rules {
   const parsed = parseRules(stored);
   if (parsed.ok && rulesEqual(parsed.rules, V1_DEFAULT_RULES)) return defaultRules;
+  return stored as Rules;
+}
+
+// The defaults as they shipped in v1.1.10 through v1.1.14, frozen. Same rules
+// as V1_DEFAULT_RULES: history, WMI list inlined on purpose, never edit to
+// match the current defaults. Differs from today's only in the missing `7G2`
+// (Cybertruck) WMI on the 2024+ rule.
+const V2_DEFAULT_RULES: Rules = [
+  {
+    name: 'HW4 (any 2024+)',
+    conditions: [
+      { type: 'chars', pos: 1, op: 'in', value: ['5YJ', '7SA', 'LRW', 'XP7'] },
+      { type: 'chars', pos: 10, op: '>', value: 'P' },
+    ],
+  },
+  {
+    name: 'HW4 Model Y Fremont 2023',
+    conditions: [
+      { type: 'chars', pos: 4, op: '==', value: 'Y' },
+      { type: 'chars', pos: 10, op: '==', value: 'PF' },
+      { type: 'number', from: 12, op: '>=', value: 789500 },
+    ],
+  },
+  {
+    name: 'HW4 Model Y Austin 2023',
+    conditions: [
+      { type: 'chars', pos: 4, op: '==', value: 'Y' },
+      { type: 'chars', pos: 10, op: '==', value: 'PA' },
+      { type: 'number', from: 12, op: '>=', value: 131200 },
+    ],
+  },
+  {
+    name: 'HW4 Model S Fremont 2023',
+    conditions: [
+      { type: 'chars', pos: 4, op: '==', value: 'S' },
+      { type: 'chars', pos: 10, op: '==', value: 'PF' },
+      { type: 'number', from: 12, op: '>=', value: 510000 },
+    ],
+  },
+  {
+    name: 'HW4 Model X Fremont 2023',
+    conditions: [
+      { type: 'chars', pos: 4, op: '==', value: 'X' },
+      { type: 'chars', pos: 10, op: '==', value: 'PF' },
+      { type: 'number', from: 12, op: '>=', value: 385000 },
+    ],
+  },
+];
+
+/**
+ * `sync:rules` v2 → v3.
+ *
+ * Adds the `7G2` (Cybertruck) WMI to the 2024+ catch-all so used Cybertrucks
+ * glow like every other HW4 car. Same contract as migrateRulesToV2: only an
+ * untouched copy of the v2 defaults is replaced; customized and unparseable
+ * values pass through as-is. A v1 copy is handled by migrateRulesToV2 first —
+ * @wxt-dev/storage runs the chain in order — and lands on the current defaults
+ * before this runs, so it's left alone here.
+ */
+export function migrateRulesToV3(stored: unknown): Rules {
+  const parsed = parseRules(stored);
+  if (parsed.ok && rulesEqual(parsed.rules, V2_DEFAULT_RULES)) return defaultRules;
   return stored as Rules;
 }

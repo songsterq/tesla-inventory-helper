@@ -38,6 +38,7 @@ const MODEL_SLUG: Record<TeslaModel, string> = {
   'Model 3': 'm3',
   'Model X': 'mx',
   'Model Y': 'my',
+  Cybertruck: 'ct',
 };
 
 // ─── BRITTLE: tesla.com DOM scraping. Keep guarded; never throw. ───

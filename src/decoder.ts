@@ -1,5 +1,5 @@
 export type TeslaPlant = 'Fremont' | 'Austin' | 'Shanghai' | 'Berlin';
-export type TeslaModel = 'Model S' | 'Model 3' | 'Model X' | 'Model Y';
+export type TeslaModel = 'Model S' | 'Model 3' | 'Model X' | 'Model Y' | 'Cybertruck';
 export type TeslaHwGuess = 'HW3' | 'HW4' | 'Unknown';
 export type TeslaDrivetrain = 'Single Motor' | 'Dual Motor' | 'Tri Motor';
 
@@ -13,7 +13,12 @@ export type TeslaVinInfo = {
   likelyHw: TeslaHwGuess;
 };
 
-export const TESLA_WMIS = ['5YJ', '7SA', 'LRW', 'XP7'] as const;
+// 5YJ = passenger car (S/3), 7SA = MPV (X/Y), 7G2 = truck (Cybertruck, and the
+// Semi, which never shows up in consumer inventory). LRW/XP7 are Shanghai and
+// Berlin. Per Tesla's NHTSA Part 565 filings through MY2027 and the vPIC WMI
+// registry; the Cybercab is registered as a model name but had no public VIN
+// pattern as of Sep 2026, and isn't sold to consumers anyway.
+export const TESLA_WMIS = ['5YJ', '7SA', 'LRW', 'XP7', '7G2'] as const;
 
 const TESLA_WMI_SET: ReadonlySet<string> = new Set(TESLA_WMIS);
 
@@ -30,13 +35,23 @@ const PLANT_BY_WMI: Record<string, TeslaPlant> = {
   '7SA': 'Austin',
   LRW: 'Shanghai',
   XP7: 'Berlin',
+  '7G2': 'Austin',
 };
 
+// Model Y L (the six-seat long-wheelbase Y; China Aug 2025, US as a MY2027 from
+// Jul 2026) still decodes as 'Model Y' here. Tesla kept pos 4 = Y for it, and
+// as of Sep 2026 NHTSA's vPIC registers no separate series, trim, wheelbase, or
+// seat count for any 2026/2027 Model Y VIN pattern, and no delivered Model Y L
+// VIN has surfaced publicly. The most plausible marker is the restraint digit
+// (pos 6): Tesla's own scheme uses `B` = FR, SR*2, TR*2, i.e. a 2+2+2 layout,
+// which no regular Model Y ships in (they use `D` five-seat or `A` seven-seat).
+// Don't act on that until real VINs confirm it — see AGENTS.md.
 const MODEL_BY_POS4: Record<string, TeslaModel> = {
   S: 'Model S',
   '3': 'Model 3',
   X: 'Model X',
   Y: 'Model Y',
+  C: 'Cybertruck',
 };
 
 // Position 8 = motor / drive unit. Letter codes overlap across models (e.g.
@@ -68,6 +83,10 @@ const DRIVETRAIN_BY_MODEL_AND_POS8: Record<TeslaModel, Record<string, TeslaDrive
     K: 'Dual Motor',
     L: 'Single Motor',
     R: 'Single Motor',
+    // S = single motor standard (2024+ service manual); T = dual motor
+    // performance, which replaced C on Highland (MY2025 NHTSA filing).
+    S: 'Single Motor',
+    T: 'Dual Motor',
   },
   'Model Y': {
     D: 'Single Motor',
@@ -77,6 +96,18 @@ const DRIVETRAIN_BY_MODEL_AND_POS8: Record<TeslaModel, Record<string, TeslaDrive
     K: 'Dual Motor',
     L: 'Single Motor',
     R: 'Single Motor',
+    // S = single motor standard (2025+ service manual); T = the 2026 Juniper
+    // Performance's dual motor (vPIC decodes 7SAYGDET*TA as "Dual Motor:
+    // Performance", though the MY2026 PDF filing only lists D/E).
+    S: 'Single Motor',
+    T: 'Dual Motor',
+  },
+  // NHTSA MY2024–2025 filings + Cybertruck service manual. `C` (single-motor
+  // RWD) appears in the MY2025 filing only.
+  Cybertruck: {
+    C: 'Single Motor',
+    D: 'Dual Motor',
+    E: 'Tri Motor',
   },
 };
 
@@ -92,7 +123,7 @@ export function isTeslaVin(s: string): boolean {
 }
 
 export function findTeslaVins(text: string): string[] {
-  const re = /\b(?:5YJ|7SA|LRW|XP7)[A-HJ-NPR-Z0-9]{14}\b/gi;
+  const re = /\b(?:5YJ|7SA|LRW|XP7|7G2)[A-HJ-NPR-Z0-9]{14}\b/gi;
   const seen = new Set<string>();
   const out: string[] = [];
   for (const match of text.matchAll(re)) {
@@ -162,7 +193,13 @@ function guessHardware(
   year: number | null,
   serial: number | null,
 ): TeslaHwGuess {
+  // Every Cybertruck shipped on HW4 (deliveries began Nov 2023, after the
+  // transition), so the model settles it before the year does.
+  if (model === 'Cybertruck') return 'HW4';
   if (year === null) return 'Unknown';
+  // 'HW4' here means the AI4 family (incl. the "HW4 Plus"/AI4.5 revisions,
+  // which the VIN can't separate). AI5 isn't slated for volume production
+  // until mid-2027, so this holds through MY2027; revisit once AI5 cars ship.
   if (year >= 2024) return 'HW4';
   if (year <= 2022) return 'HW3';
   // year === 2023: hardware transitioned mid-year; depends on model + plant +

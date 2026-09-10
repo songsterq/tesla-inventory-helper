@@ -20,7 +20,7 @@ Source of truth for everything entered into the Chrome Web Store dashboard. Upda
 >
 > When you land on a Tesla listing on a supported third-party site, a small dark panel appears in the top-right corner showing what the VIN actually means:
 >
-> What it is — Model S, 3, X, or Y
+> What it is — Model S, 3, X, Y, or Cybertruck
 > What year it really is — verified against the VIN, not just what the seller wrote
 > Where it was built
 > Roughly where it sits in the production run
