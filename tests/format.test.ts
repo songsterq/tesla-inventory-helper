@@ -121,16 +121,30 @@ describe('formatCarNameFull', () => {
 });
 
 describe('formatCarSubLine', () => {
-  it('joins paint, mileage+unit, and HW with a middle dot', () => {
-    expect(formatCarSubLine(makeCar())).toBe('Stealth Grey · 42,000 mi · HW4');
+  it('joins paint, mileage+unit, plant, and HW with a middle dot', () => {
+    expect(formatCarSubLine(makeCar())).toBe('Stealth Grey · 42,000 mi · Fremont · HW4');
   });
   it('omits mileage when absent', () => {
     expect(formatCarSubLine(makeCar({ mileage: null, mileageUnit: null }))).toBe(
-      'Stealth Grey · HW4',
+      'Stealth Grey · Fremont · HW4',
     );
   });
   it('omits paint when absent', () => {
-    expect(formatCarSubLine(makeCar({ paintName: null }))).toBe('42,000 mi · HW4');
+    expect(formatCarSubLine(makeCar({ paintName: null }))).toBe('42,000 mi · Fremont · HW4');
+  });
+  // Plant comes from the VIN, not a stored field, so it tracks whatever VIN the car has.
+  it('reads the plant off the VIN rather than the stored record', () => {
+    expect(formatCarSubLine(makeCar({ vin: '7SAYGAEE2PA200000' }))).toBe(
+      'Stealth Grey · 42,000 mi · Austin · HW4',
+    );
+    expect(formatCarSubLine(makeCar({ vin: 'LRWYGCEK7RR000001' }))).toBe(
+      'Stealth Grey · 42,000 mi · Shanghai · HW4',
+    );
+  });
+  it('omits the plant when the VIN does not decode', () => {
+    expect(formatCarSubLine(makeCar({ vin: 'NOTATESLAVIN00000' }))).toBe(
+      'Stealth Grey · 42,000 mi · HW4',
+    );
   });
 });
 

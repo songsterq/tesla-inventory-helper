@@ -1,3 +1,4 @@
+import { decodeTeslaVin } from './decoder';
 import type { CarSnapshot, SavedCar } from './savedCars';
 
 // Shared price/car formatting used by both the popup watchlist row and the
@@ -63,12 +64,16 @@ function joinCarName(car: SavedCar, trim: string | null): string {
   return [car.modelYear, car.model, trim].filter(Boolean).join(' ') || car.vin;
 }
 
-// Sub-line, e.g. "Stealth Grey · 42,000 mi · HW4"; parts drop out when absent.
+// Sub-line, e.g. "Stealth Grey · 42,000 mi · Fremont · HW4"; parts drop out when absent.
+// Plant is re-derived from the VIN rather than read off the car: it's a pure
+// function of the VIN, `SavedCar` never stored it, and `local:savedCars` has no
+// migration — so deriving here back-fills cars saved before this line existed.
 export function formatCarSubLine(car: SavedCar): string {
   const parts: (string | null)[] = [car.paintName];
   if (car.mileage && car.mileageUnit) {
     parts.push(`${car.mileage.toLocaleString()} ${car.mileageUnit}`);
   }
+  parts.push(decodeTeslaVin(car.vin)?.plant ?? null);
   parts.push(car.likelyHw);
   return parts.filter(Boolean).join(' · ');
 }
