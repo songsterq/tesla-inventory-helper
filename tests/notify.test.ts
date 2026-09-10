@@ -44,7 +44,7 @@ describe('buildChangeNotification', () => {
     expect(n!.id).toBe('tih:car:7SAYGDEE5PF789500');
     expect(n!.title).toBe('2024 Model Y LR');
     expect(n!.message).toBe('Price dropped $1,400 → $45,590');
-    expect(n!.contextMessage).toBe('Stealth Grey · 42,000 mi · HW4');
+    expect(n!.contextMessage).toBe('Stealth Grey · 42,000 mi · Fremont · HW4');
     expect(n!.target).toEqual({ kind: 'url', url: car.url });
   });
 
@@ -55,7 +55,7 @@ describe('buildChangeNotification', () => {
     const n = buildChangeNotification(changes);
 
     expect(n!.message).toBe('No longer listed');
-    expect(n!.contextMessage).toBe('Stealth Grey · 42,000 mi · HW4');
+    expect(n!.contextMessage).toBe('Stealth Grey · 42,000 mi · Fremont · HW4');
     expect(n!.target).toEqual({ kind: 'url', url: car.url });
   });
 
