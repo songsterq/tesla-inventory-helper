@@ -1,14 +1,15 @@
 import { storage } from 'wxt/utils/storage';
 import type { Rules } from './rules';
 import type { SavedCars } from './savedCars';
-import { defaultRules, migrateRulesToV2 } from './defaultRules';
+import { defaultRules, migrateRulesToV2, migrateRulesToV3 } from './defaultRules';
 import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck';
 
 // v2 re-seeds users still holding an untouched copy of the v1 defaults, whose
 // 2023 cutoffs were wrong for Model S/X and Model 3; see migrateRulesToV2.
-// Custom rule sets are left alone.
+// v3 does the same for an untouched v2 copy, adding the Cybertruck WMI to the
+// 2024+ rule; see migrateRulesToV3. Custom rule sets are left alone.
 //
-// Note this migration runs at module load in *every* context that imports this
+// Note these migrations run at module load in *every* context that imports this
 // file (background, popup, both content scripts), not from a single onInstalled
 // hook — @wxt-dev/storage kicks it off inside defineItem. It's safe to run
 // concurrently: the transform is pure and the version write is idempotent. It's
@@ -17,9 +18,10 @@ import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck
 // rejecting them.
 export const rulesItem = storage.defineItem<Rules>('sync:rules', {
   fallback: defaultRules,
-  version: 2,
+  version: 3,
   migrations: {
     2: migrateRulesToV2,
+    3: migrateRulesToV3,
   },
 });
 

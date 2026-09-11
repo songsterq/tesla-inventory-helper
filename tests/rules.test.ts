@@ -90,6 +90,7 @@ describe('evalRules with default seed rules', () => {
     expect(evalRules('XP7YGCEE1RB000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
     expect(evalRules('LRWYGCEK7RR000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
     expect(evalRules('5YJ3E1EA1RF000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
+    expect(evalRules('7G2CEHED5RA000001', defaultRules)?.name).toBe('HW4 (any 2024+)');
   });
 
   it('does not match a non-Tesla 2024+ VIN', () => {

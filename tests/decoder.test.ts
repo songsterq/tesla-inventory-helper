@@ -9,6 +9,7 @@ describe('isTeslaVin', () => {
     expect(isTeslaVin('7SAYGDEE5PF633523')).toBe(true);
     expect(isTeslaVin('LRWYGCEK7RC000001')).toBe(true);
     expect(isTeslaVin('XP7YGCEE1RB000001')).toBe(true);
+    expect(isTeslaVin('7G2CEHED5RA000001')).toBe(true);
   });
 
   it('rejects non-Tesla WMIs', () => {
@@ -36,6 +37,9 @@ describe('decodeTeslaVin — model line', () => {
   });
   it('decodes Model X', () => {
     expect(decodeTeslaVin('5YJXCBE20NF000001')?.model).toBe('Model X');
+  });
+  it('decodes Cybertruck (7G2 WMI, pos 4 = C)', () => {
+    expect(decodeTeslaVin('7G2CEHED5RA000001')?.model).toBe('Cybertruck');
   });
   it('returns null model for unknown position-4 code', () => {
     expect(decodeTeslaVin('5YJZE1EA1NF000001')?.model).toBeNull();
@@ -66,6 +70,7 @@ describe('decodeTeslaVin — plant', () => {
   });
   it('decodes Austin from pos 11 = A', () => {
     expect(decodeTeslaVin('7SAYGAEE2PA200000')?.plant).toBe('Austin');
+    expect(decodeTeslaVin('7G2CEHED5RA000001')?.plant).toBe('Austin');
   });
   it('decodes Berlin from pos 11 = B', () => {
     expect(decodeTeslaVin('XP7YGCEE1RB000001')?.plant).toBe('Berlin');
@@ -112,6 +117,21 @@ describe('decodeTeslaVin — drivetrain (position 8)', () => {
   it('decodes hairpin K as dual on Model Y', () => {
     expect(decodeTeslaVin('7SAYGDEK5RF000001')?.drivetrain).toBe('Dual Motor');
   });
+  // S = single motor standard (service manuals); T = dual motor performance
+  // (Highland per the MY2025 filing, Juniper Performance per vPIC).
+  it('decodes the newer S / T codes on Model 3 and Model Y', () => {
+    expect(decodeTeslaVin('5YJ3E1ES1TF000001')?.drivetrain).toBe('Single Motor');
+    expect(decodeTeslaVin('5YJ3E1ET1SF000001')?.drivetrain).toBe('Dual Motor');
+    expect(decodeTeslaVin('7SAYGDES5TA000001')?.drivetrain).toBe('Single Motor');
+    expect(decodeTeslaVin('7SAYGDET5TA000001')?.drivetrain).toBe('Dual Motor');
+  });
+  // Cybertruck reuses letters that mean something else on other lines: D is
+  // single-motor on a Model Y but dual-motor here.
+  it('decodes Cybertruck C / D / E by its own table', () => {
+    expect(decodeTeslaVin('7G2CEHEC5SA000001')?.drivetrain).toBe('Single Motor');
+    expect(decodeTeslaVin('7G2CEHED5RA000001')?.drivetrain).toBe('Dual Motor');
+    expect(decodeTeslaVin('7G2CEHEE5RA000001')?.drivetrain).toBe('Tri Motor');
+  });
   it('returns null for an undocumented position-8 code', () => {
     expect(decodeTeslaVin('5YJ3E1EZ1NF000001')?.drivetrain).toBeNull();
   });
@@ -131,6 +151,15 @@ describe('decodeTeslaVin — likely hardware', () => {
     expect(decodeTeslaVin('7SAYGDEE5RF000001')?.likelyHw).toBe('HW4');
     expect(decodeTeslaVin('XP7YGCEE1SB000001')?.likelyHw).toBe('HW4');
     expect(decodeTeslaVin('LRWYGCEK7TC000001')?.likelyHw).toBe('HW4');
+  });
+  it('returns HW4 for every Cybertruck, including a 2023-coded one', () => {
+    expect(decodeTeslaVin('7G2CEHED5RA000001')?.likelyHw).toBe('HW4');
+    expect(decodeTeslaVin('7G2CEHED5PA000001')?.likelyHw).toBe('HW4');
+  });
+  it('agrees with the default highlight rules on a used Cybertruck', () => {
+    const vin = '7G2CEHED5RA012345';
+    expect(decodeTeslaVin(vin)?.likelyHw).toBe('HW4');
+    expect(evalRules(vin, defaultRules)?.name).toBe('HW4 (any 2024+)');
   });
   it('returns HW3 for 2022 or earlier', () => {
     expect(decodeTeslaVin('5YJ3E1EA1NF000001')?.likelyHw).toBe('HW3');
@@ -197,6 +226,9 @@ describe('findTeslaVins', () => {
   it('deduplicates repeated VINs', () => {
     const text = '7SAYGDEE5PF633523 ... 7SAYGDEE5PF633523';
     expect(findTeslaVins(text)).toEqual(['7SAYGDEE5PF633523']);
+  });
+  it('finds a Cybertruck VIN', () => {
+    expect(findTeslaVins('stock 7G2CEHED5RA000001 ready')).toEqual(['7G2CEHED5RA000001']);
   });
   it('does not match non-Tesla 17-char strings', () => {
     expect(findTeslaVins('1HGCM82633A004352 in the page.')).toEqual([]);

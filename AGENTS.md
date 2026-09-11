@@ -46,7 +46,8 @@ Condition types:
 
 ## Default rules — invariants
 
-- `HW4 (any 2024+)` must keep its `in` check against Tesla WMIs (`5YJ`, `7SA`, `LRW`, `XP7`) so non-Tesla VINs with `pos 10 > P` don't false-match. It stays deliberately model-agnostic (no `pos 4` condition) so a new model line is covered the year it ships.
+- `HW4 (any 2024+)` must keep its `in` check against Tesla WMIs (`5YJ`, `7SA`, `LRW`, `XP7`, `7G2`) so non-Tesla VINs with `pos 10 > P` don't false-match. It stays deliberately model-agnostic (no `pos 4` condition) so a new model line is covered the year it ships. `7G2` is the truck WMI (Cybertruck; also the Semi, which never appears in consumer inventory). The Cybercab is registered with NHTSA as a model name but had no public VIN pattern as of Sep 2026 and isn't sold to consumers, so it's deliberately absent. The `in` op requires equal-length entries, so every WMI here is 3 chars.
+- The same list lives in `TESLA_WMIS` in `src/decoder.ts` (also inlined in the `findTeslaVins` regex). Keep them in sync: a WMI missing from the decoder makes `decodeTeslaVin` return null, which disables the Track button and the popover for that car even if the rule would glow it.
 - 2023 is the transition year and needs a serial cutoff. **Tesla numbers each model line separately, so these numbers are not comparable to each other** — a Model X serial and a Model Y serial from the same plant and week are nowhere near each other. Community-pinned:
 
   | Model | Plant | Cutoff | Community range |
@@ -60,6 +61,18 @@ Condition types:
 - **Model 3 is HW4 only from 2024**, and has no 2023 rule at all. There's no community-pinned 2023 serial for the 3 line: most 2023 Model 3s are pre-Highland HW3, and while Highland (from ~late 2023) shipped HW4, the changeover doesn't map cleanly onto a serial. `789500` is a **Model Y** number and must never be applied to the 3 line — an earlier version of these rules left the Fremont rule unscoped, which silently did exactly that. The known cost is that a 2023 Highland Model 3 won't glow; that's the deliberate trade, since the alternative false-positives every pre-Highland 2023 Model 3 above the cutoff.
 - The rules mirror that table one-for-one: `HW4 Model Y Fremont 2023`, `HW4 Model Y Austin 2023`, `HW4 Model S Fremont 2023`, `HW4 Model X Fremont 2023`. Names carry the model because they show on the Track/highlight badge.
 - The same thresholds live in `HW4_SERIAL_2023` in `src/decoder.ts`, which drives the third-party popover's HW guess, and the gaps in that table are load-bearing: a missing entry (Model 3 anywhere, anything at Berlin/Shanghai) yields `Unknown` rather than a guess. **Keep it in sync with the rules** — otherwise the same VIN can glow as a match on Tesla.com while the popover calls it HW3.
+- Cybertruck (`7G2`, `pos 4 == C`) is HW4 across the board: the decoder short-circuits on the model before looking at the year, and the 2024+ rule covers it on Tesla.com. Its `pos 8` letters collide with other lines (`D` is single-motor on a Model Y, dual-motor on a Cybertruck), which is why `DRIVETRAIN_BY_MODEL_AND_POS8` is keyed by model.
+- "HW4" in the decoder means the AI4 family, including the AI4.5 / "HW4 Plus" board revisions, which the VIN can't separate. AI5 isn't slated for volume production until mid-2027, so `year >= 2024 → HW4` holds through MY2027. **Revisit when AI5 cars ship** — that year will need the same kind of transition handling 2023 has.
+
+## Model Y L
+
+The six-seat long-wheelbase Model Y (China Aug 2025; US as a **MY2027** from Jul 2026, built at Austin) is **not distinguishable from a regular Model Y by VIN yet**, and the decoder reports it as `Model Y` on purpose. What was checked (Sep 2026):
+
+- Tesla kept `pos 4 = Y`. NHTSA's vPIC registers no separate series/trim/wheelbase/seat count for any 2026 or 2027 Model Y pattern, and the MY2026 Part 565 filing has only the usual Model Y codes.
+- No delivered Model Y L VIN had surfaced publicly (US first deliveries were fall 2026).
+- Best hypothesis: the restraint digit (`pos 6`). Tesla's scheme has `B` = FR, SR*2, TR*2 (a 2+2+2 layout, previously Model X six-seat only), while a regular Model Y ships as `D` (five-seat) or `A` (seven-seat). If real Model Y L VINs confirm `pos 6 == B`, add a `Model Y L` label from that — but not before, since Tesla has reused restraint codes loosely across lines.
+
+It doesn't affect the HW verdict: as a MY2027 it's HW4 by the year rule either way.
 
 ## Re-seeding stored rules
 
@@ -67,7 +80,7 @@ Condition types:
 
 To push a corrected default to those users, bump `version` on `rulesItem` and add a migration:
 
-- `migrateRulesToV2` in `src/defaultRules.ts` is the template. It replaces the stored value **only** when it's structurally equal to a frozen snapshot of the previous defaults; customizations and unparseable values pass through untouched. A migration must never be the thing that destroys someone's rules.
+- `migrateRulesToV2` / `migrateRulesToV3` in `src/defaultRules.ts` are the template. Each replaces the stored value **only** when it's structurally equal to a frozen snapshot of the previous defaults; customizations and unparseable values pass through untouched. A migration must never be the thing that destroys someone's rules. `@wxt-dev/storage` runs the chain in order, so a v1 copy goes v1→v2→v3 and each step only needs to recognize the snapshot immediately before it.
 - Each bump needs its own frozen `V<n>_DEFAULT_RULES` snapshot. These are history — don't edit them to match current rules, and keep their WMI lists inlined so editing `TESLA_WMIS` can't retroactively rewrite what an old version looked like.
 - Compare with `rulesEqual` (`src/rules.ts`), not `JSON.stringify`: stored values have been through `parseRules` and the snapshots are hand-written literals, so key order won't match.
 - `@wxt-dev/storage` runs migrations inside `defineItem`, at module load in **every** context that imports `src/storage.ts` — not from a single `onInstalled` hook. Concurrent runs are fine (pure transform, idempotent version write), but the call is fire-and-forget, so a throw surfaces only as a `console.error`.

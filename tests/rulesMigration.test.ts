@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultRules, migrateRulesToV2 } from '../src/defaultRules';
+import { defaultRules, migrateRulesToV2, migrateRulesToV3 } from '../src/defaultRules';
 import { evalRules, parseRules, rulesEqual, type Rules } from '../src/rules';
 
 // The v1.1.9 defaults, as a user who hit Save would have them stored: run
@@ -25,6 +25,51 @@ const V1_STORED = JSON.parse(
       conditions: [
         { type: 'chars', pos: 10, op: '==', value: 'PA' },
         { type: 'number', from: 12, op: '>=', value: 131200 },
+      ],
+    },
+  ]),
+);
+
+// The v1.1.10–v1.1.14 defaults as stored by a user who hit Save.
+const V2_STORED = JSON.parse(
+  JSON.stringify([
+    {
+      name: 'HW4 (any 2024+)',
+      conditions: [
+        { type: 'chars', pos: 1, op: 'in', value: ['5YJ', '7SA', 'LRW', 'XP7'] },
+        { type: 'chars', pos: 10, op: '>', value: 'P' },
+      ],
+    },
+    {
+      name: 'HW4 Model Y Fremont 2023',
+      conditions: [
+        { type: 'chars', pos: 4, op: '==', value: 'Y' },
+        { type: 'chars', pos: 10, op: '==', value: 'PF' },
+        { type: 'number', from: 12, op: '>=', value: 789500 },
+      ],
+    },
+    {
+      name: 'HW4 Model Y Austin 2023',
+      conditions: [
+        { type: 'chars', pos: 4, op: '==', value: 'Y' },
+        { type: 'chars', pos: 10, op: '==', value: 'PA' },
+        { type: 'number', from: 12, op: '>=', value: 131200 },
+      ],
+    },
+    {
+      name: 'HW4 Model S Fremont 2023',
+      conditions: [
+        { type: 'chars', pos: 4, op: '==', value: 'S' },
+        { type: 'chars', pos: 10, op: '==', value: 'PF' },
+        { type: 'number', from: 12, op: '>=', value: 510000 },
+      ],
+    },
+    {
+      name: 'HW4 Model X Fremont 2023',
+      conditions: [
+        { type: 'chars', pos: 4, op: '==', value: 'X' },
+        { type: 'chars', pos: 10, op: '==', value: 'PF' },
+        { type: 'number', from: 12, op: '>=', value: 385000 },
       ],
     },
   ]),
@@ -129,5 +174,41 @@ describe('migrateRulesToV2', () => {
     expect(migrateRulesToV2(null)).toBeNull();
     const halfBad = [{ name: 'x', conditions: [{ type: 'nope' }] }];
     expect(migrateRulesToV2(halfBad)).toBe(halfBad);
+  });
+});
+
+describe('migrateRulesToV3', () => {
+  it('re-seeds an untouched copy of the v2 defaults', () => {
+    expect(migrateRulesToV3(V2_STORED)).toEqual(defaultRules);
+  });
+
+  it('makes a used Cybertruck glow for a re-seeded user', () => {
+    const vin = '7G2CEHED5RA000001';
+    expect(evalRules(vin, V2_STORED)).toBeNull();
+    expect(evalRules(vin, migrateRulesToV3(V2_STORED))?.name).toBe('HW4 (any 2024+)');
+  });
+
+  it('chains after v2: a v1 copy lands on the current defaults', () => {
+    expect(migrateRulesToV3(migrateRulesToV2(V1_STORED))).toEqual(defaultRules);
+  });
+
+  it('leaves a customized rule set alone', () => {
+    const custom = JSON.parse(JSON.stringify(V2_STORED));
+    custom[1].conditions[2].value = 800000;
+    expect(migrateRulesToV3(custom)).toBe(custom);
+
+    const fewer = JSON.parse(JSON.stringify(V2_STORED)).slice(0, 2);
+    expect(migrateRulesToV3(fewer)).toBe(fewer);
+  });
+
+  it('leaves the already-current defaults alone', () => {
+    const current = JSON.parse(JSON.stringify(defaultRules));
+    expect(migrateRulesToV3(current)).toBe(current);
+  });
+
+  it('passes unparseable values through rather than repairing them', () => {
+    const junk = { not: 'rules' };
+    expect(migrateRulesToV3(junk)).toBe(junk);
+    expect(migrateRulesToV3(null)).toBeNull();
   });
 });
