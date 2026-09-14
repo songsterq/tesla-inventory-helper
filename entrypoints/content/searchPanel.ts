@@ -1,6 +1,7 @@
 import {
   isSameSearchUrl,
   MAX_SAVED_SEARCHES,
+  searchLabel,
   type SavedSearch,
   type SavedSearches,
 } from '../../src/savedSearches';
@@ -20,11 +21,11 @@ const ANCHOR_SEL = 'section.inventory-header-wrapper div.view-options';
 const ANCHOR_FALLBACK_SEL = 'section.inventory-header-wrapper';
 
 export type SaveOutcome =
-  | { ok: true; name: string }
+  | { ok: true; label: string }
   | {
       ok: false;
       reason: 'duplicate' | 'full' | 'quota' | 'capture-failed';
-      existingName?: string;
+      existingLabel?: string;
     };
 
 export type SearchPanelHandlers = {
@@ -252,13 +253,13 @@ async function doSave(): Promise<void> {
   try {
     const result = await handlers.onSave();
     if (result.ok) {
-      setPanelStatus(`Saved "${result.name}".`, 'ok', 4000);
+      setPanelStatus(`Saved "${result.label}".`, 'ok', 4000);
       return;
     }
     switch (result.reason) {
       case 'duplicate':
         setPanelStatus(
-          result.existingName ? `Already saved as "${result.existingName}".` : 'Already saved.',
+          result.existingLabel ? `Already saved as "${result.existingLabel}".` : 'Already saved.',
           'info',
           5000,
         );
@@ -289,22 +290,27 @@ function renderRow(search: SavedSearch, href: string): HTMLLIElement {
   const main = document.createElement('div');
   main.className = 'row-main';
 
+  // Unnamed searches show the description as their label; a custom name
+  // pushes the description down to a subtitle.
+  const label = searchLabel(search);
   const name = document.createElement('button');
-  name.className = 'name';
+  name.className = search.name ? 'name' : 'name unnamed';
   name.type = 'button';
-  name.textContent = search.name;
+  name.textContent = label;
   name.title = isCurrent ? 'Re-apply this search here' : 'Open this search';
   name.addEventListener('click', () => {
     if (!handlers) return;
     void handlers.onOpen(search);
   });
+  main.append(name);
 
-  const desc = document.createElement('div');
-  desc.className = 'desc';
-  desc.textContent = search.description;
-  desc.title = search.description;
-
-  main.append(name, desc);
+  if (search.name) {
+    const desc = document.createElement('div');
+    desc.className = 'desc';
+    desc.textContent = search.description;
+    desc.title = search.description;
+    main.append(desc);
+  }
 
   const actions = document.createElement('div');
   actions.className = 'row-actions';
@@ -312,8 +318,8 @@ function renderRow(search: SavedSearch, href: string): HTMLLIElement {
   const rename = document.createElement('button');
   rename.className = 'icon-btn';
   rename.type = 'button';
-  rename.title = 'Rename';
-  rename.setAttribute('aria-label', `Rename ${search.name}`);
+  rename.title = search.name ? 'Rename' : 'Add a name';
+  rename.setAttribute('aria-label', `${search.name ? 'Rename' : 'Name'} ${label}`);
   rename.textContent = '✎';
   rename.addEventListener('click', () => startRename(li, search));
 
@@ -321,7 +327,7 @@ function renderRow(search: SavedSearch, href: string): HTMLLIElement {
   remove.className = 'icon-btn';
   remove.type = 'button';
   remove.title = 'Delete';
-  remove.setAttribute('aria-label', `Delete ${search.name}`);
+  remove.setAttribute('aria-label', `Delete ${label}`);
   remove.textContent = '×';
   remove.addEventListener('click', () => {
     if (!handlers) return;
@@ -343,6 +349,7 @@ function startRename(li: HTMLLIElement, search: SavedSearch): void {
   input.type = 'text';
   input.maxLength = 60;
   input.value = search.name;
+  input.placeholder = 'Add a name (optional)';
   input.setAttribute('aria-label', 'Search name');
 
   let done = false;
@@ -351,7 +358,8 @@ function startRename(li: HTMLLIElement, search: SavedSearch): void {
     done = true;
     editingId = null;
     const next = input.value.trim();
-    if (commit && next && next !== search.name && handlers) {
+    // An emptied field clears the custom name (the description shows again).
+    if (commit && next !== search.name && handlers) {
       void handlers.onRename(search.id, next);
     }
     // Re-render from the current list so the row goes back to a button even if

@@ -28,7 +28,7 @@ import {
   formatPrice,
   priceSymbol,
 } from '../../src/format';
-import { removeSearch, type SavedSearch, type SavedSearches } from '../../src/savedSearches';
+import { removeSearch, searchLabel, type SavedSearch, type SavedSearches } from '../../src/savedSearches';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const highlightingEnabledInput = document.getElementById(
@@ -433,8 +433,10 @@ function renderSearchRow(search: SavedSearch): HTMLLIElement {
   title.href = search.url;
   title.target = '_blank';
   title.rel = 'noopener noreferrer';
-  title.textContent = search.name;
+  // The description is the label unless the user gave the search a name.
+  title.textContent = searchLabel(search);
   title.title = search.description;
+  if (!search.name) title.classList.add('saved-search-unnamed');
   title.addEventListener('click', (e) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
@@ -445,16 +447,18 @@ function renderSearchRow(search: SavedSearch): HTMLLIElement {
   });
   info.append(title);
 
-  const sub = document.createElement('span');
-  sub.className = 'saved-car-sub';
-  sub.textContent = search.description;
-  info.append(sub);
+  if (search.name) {
+    const sub = document.createElement('span');
+    sub.className = 'saved-car-sub';
+    sub.textContent = search.description;
+    info.append(sub);
+  }
 
   const remove = document.createElement('button');
   remove.className = 'saved-car-remove';
   remove.type = 'button';
   remove.title = 'Delete saved search';
-  remove.setAttribute('aria-label', `Delete saved search ${search.name}`);
+  remove.setAttribute('aria-label', `Delete saved search ${searchLabel(search)}`);
   remove.textContent = '✕';
   remove.addEventListener('click', async () => {
     const searches = await savedSearchesItem.getValue();

@@ -26,7 +26,6 @@ import {
   clampRange,
   conditionFromPath,
   createSavedSearch,
-  defaultName,
   groupsFromUrl,
   isInventoryListingPath,
   isSameSearchUrl,
@@ -36,7 +35,7 @@ import {
   rangeWriteSettled,
   removeSearch,
   renameSearch,
-  uniqueName,
+  searchLabelShort,
   type Bounds,
   type CapturedGroup,
   type CapturedRange,
@@ -567,12 +566,13 @@ export default defineContentScript({
     // ─── Saved searches ───
 
     const reportRestore = (search: SavedSearch, result: ApplyResult) => {
+      const label = searchLabelShort(search);
       if (result.failed.length === 0) {
-        setPanelStatus(`Applied "${search.name}".`, 'ok', 4000);
+        setPanelStatus(`Applied "${label}".`, 'ok', 4000);
         return;
       }
       const which = result.failed.map((k) => RANGE_KEY_LABELS[k]).join(', ');
-      setPanelStatus(`Applied "${search.name}", but couldn't set ${which}.`, 'error', 8000);
+      setPanelStatus(`Applied "${label}", but couldn't set ${which}.`, 'error', 8000);
     };
 
     const panelHandlers: SearchPanelHandlers = {
@@ -580,13 +580,16 @@ export default defineContentScript({
         const view = captureView();
         if (!view) return { ok: false, reason: 'capture-failed' };
         const id = crypto.randomUUID().slice(0, 8);
-        const name = uniqueName(searches, defaultName(view));
-        const search = createSavedSearch(view, location.href, Date.now(), id, name);
+        const search = createSavedSearch(view, location.href, Date.now(), id);
         const result = addSearch(searches, search);
         if (!result.ok) {
           if (result.reason === 'duplicate') {
             const existing = searches.find((s) => s.id === result.existingId);
-            return { ok: false, reason: 'duplicate', existingName: existing?.name };
+            return {
+              ok: false,
+              reason: 'duplicate',
+              existingLabel: existing ? searchLabelShort(existing) : undefined,
+            };
           }
           return { ok: false, reason: result.reason };
         }
@@ -598,16 +601,16 @@ export default defineContentScript({
         }
         searches = result.searches;
         renderSearchList(searches, location.href);
-        return { ok: true, name: search.name };
+        return { ok: true, label: searchLabelShort(search) };
       },
       onOpen: async (search) => {
         // Same listing already loaded → just push the sliders, no navigation.
         if (isSameSearchUrl(location.href, search.url)) {
-          setPanelStatus(`Applying "${search.name}"…`, 'info');
+          setPanelStatus(`Applying "${searchLabelShort(search)}"…`, 'info');
           reportRestore(search, await applyRanges(search.ranges));
           return;
         }
-        setPanelStatus(`Opening "${search.name}"…`, 'info');
+        setPanelStatus(`Opening "${searchLabelShort(search)}"…`, 'info');
         const res = (await browser.runtime
           .sendMessage({ type: 'tih:open-search', id: search.id, newTab: false })
           .catch(() => null)) as { ok?: boolean } | null;
@@ -630,8 +633,8 @@ export default defineContentScript({
       const search = (await browser.runtime
         .sendMessage({ type: 'tih:pending-search' })
         .catch(() => null)) as SavedSearch | null;
-      if (!search || typeof search !== 'object' || typeof search.name !== 'string') return;
-      setPanelStatus(`Restoring "${search.name}"…`, 'info');
+      if (!search || typeof search !== 'object' || typeof search.description !== 'string') return;
+      setPanelStatus(`Restoring "${searchLabelShort(search)}"…`, 'info');
       reportRestore(search, await applyRanges(search.ranges ?? {}));
     };
 

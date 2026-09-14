@@ -43,8 +43,8 @@ export type SavedRange = { min: number; max: number };
 // ranges the user actually moved are kept.
 export type SavedSearch = {
   id: string;
-  name: string; // user-editable
-  description: string; // auto-generated summary of what was applied
+  name: string; // optional custom label; '' when the user hasn't set one
+  description: string; // auto-generated summary of what was applied; the label when `name` is empty
   url: string; // normalized listing URL (see normalizeSearchUrl)
   condition: SearchCondition;
   ranges: Partial<Record<RangeKey, SavedRange>>;
@@ -331,26 +331,31 @@ export function groupsFromUrl(search: string, capturedKeys: Iterable<string>): C
 
 // ─── List operations ───
 
-export function uniqueName(existing: SavedSearches, base: string): string {
-  const taken = new Set(existing.map((s) => s.name));
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) {
-    const candidate = `${base} (${n})`;
-    if (!taken.has(candidate)) return candidate;
-  }
+// What a search is called in lists and messages: the custom name if the user
+// set one, else the auto description. Searches are deliberately NOT given a
+// generated name — "Used Model Y (2)" says nothing the description doesn't.
+export function searchLabel(search: SavedSearch): string {
+  return search.name || search.description;
 }
+
+// Same, kept short enough for a one-line status message.
+export function searchLabelShort(search: SavedSearch, max = 48): string {
+  return truncate(searchLabel(search), max);
+}
+
+const cleanName = (name: string): string =>
+  truncate(name.replace(/\s+/g, ' ').trim(), MAX_NAME_LENGTH);
 
 export function createSavedSearch(
   view: CapturedView,
   href: string,
   now: number,
   id: string,
-  name?: string,
+  name = '',
 ): SavedSearch {
-  const rawName = (name ?? defaultName(view)).trim() || defaultName(view);
   return {
     id,
-    name: truncate(rawName, MAX_NAME_LENGTH),
+    name: cleanName(name),
     description: describeView(view),
     url: normalizeSearchUrl(href),
     condition: view.condition,
@@ -394,10 +399,10 @@ export function removeSearch(searches: SavedSearches, id: string): SavedSearches
   return searches.filter((s) => s.id !== id);
 }
 
-// Empty names keep the old one; whitespace is trimmed and the length capped.
+// Set or clear the custom name: whitespace is trimmed, the length capped, and
+// an empty name removes the custom label so the description shows again.
 export function renameSearch(searches: SavedSearches, id: string, name: string): SavedSearches {
-  const clean = truncate(name.replace(/\s+/g, ' ').trim(), MAX_NAME_LENGTH);
-  if (!clean) return searches;
+  const clean = cleanName(name);
   return searches.map((s) => (s.id === id && s.name !== clean ? { ...s, name: clean } : s));
 }
 

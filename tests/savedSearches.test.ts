@@ -21,8 +21,9 @@ import {
   rangeWriteSettled,
   removeSearch,
   renameSearch,
+  searchLabel,
+  searchLabelShort,
   SYNC_ITEM_BUDGET_BYTES,
-  uniqueName,
   userSetRanges,
   type CapturedRange,
   type CapturedView,
@@ -283,16 +284,16 @@ describe('describeView with URL-derived groups', () => {
   });
 });
 
-describe('defaultName / uniqueName', () => {
-  it('names by condition and model', () => {
+describe('defaultName / searchLabel', () => {
+  it('headlines by condition and model', () => {
     expect(defaultName(fullView())).toBe('Used Model Y');
     expect(defaultName({ ...fullView(), condition: 'new', model: null })).toBe('New inventory');
   });
 
-  it('suffixes a counter on collision', () => {
-    const existing = [search('a', { name: 'Used Model Y' }), search('b', { name: 'Used Model Y (2)' })];
-    expect(uniqueName(existing, 'Used Model Y')).toBe('Used Model Y (3)');
-    expect(uniqueName(existing, 'New Model 3')).toBe('New Model 3');
+  it('labels a search by its custom name, else its description', () => {
+    expect(searchLabel(search('a', { name: '', description: 'Used Model Y · 2023+' }))).toBe('Used Model Y · 2023+');
+    expect(searchLabel(search('a', { name: 'Commute car', description: 'Used Model Y · 2023+' }))).toBe('Commute car');
+    expect(searchLabelShort(search('a', { name: '', description: 'x'.repeat(80) }), 20)).toBe(`${'x'.repeat(19)}…`);
   });
 });
 
@@ -301,7 +302,7 @@ describe('createSavedSearch', () => {
     const s = createSavedSearch(fullView(), `${HREF}#hash`, 1234, 'abc');
     expect(s).toEqual({
       id: 'abc',
-      name: 'Used Model Y',
+      name: '',
       description: describeView(fullView()),
       url: 'https://www.tesla.com/inventory/used/my?TRIM=MY_LR_AWD%2CMY_P_AWD&arrangeby=plh&range=200&zip=98052',
       condition: 'used',
@@ -314,9 +315,10 @@ describe('createSavedSearch', () => {
     });
   });
 
-  it('caps an explicit name and falls back to the default when blank', () => {
+  it('leaves the name empty by default and caps an explicit one', () => {
+    expect(createSavedSearch(fullView(), HREF, 1, 'a').name).toBe('');
     expect(createSavedSearch(fullView(), HREF, 1, 'a', 'x'.repeat(100)).name.length).toBe(MAX_NAME_LENGTH);
-    expect(createSavedSearch(fullView(), HREF, 1, 'a', '   ').name).toBe('Used Model Y');
+    expect(createSavedSearch(fullView(), HREF, 1, 'a', '   ').name).toBe('');
   });
 });
 
@@ -352,12 +354,14 @@ describe('addSearch / findDuplicate / removeSearch / renameSearch', () => {
     expect(removeSearch([search('a'), search('b')], 'a').map((s) => s.id)).toEqual(['b']);
   });
 
-  it('renames with trimming and a length cap, ignoring blank names', () => {
+  it('renames with trimming and a length cap, and clears on a blank name', () => {
     const list = [search('a'), search('b')];
     expect(renameSearch(list, 'a', '  My   search  ')[0]?.name).toBe('My search');
     expect(renameSearch(list, 'a', 'z'.repeat(100))[0]?.name.length).toBe(MAX_NAME_LENGTH);
-    expect(renameSearch(list, 'a', '   ')).toBe(list);
+    expect(renameSearch(list, 'a', '   ')[0]?.name).toBe('');
     expect(renameSearch(list, 'a', 'New')[1]).toBe(list[1]);
+    const unnamed = [search('a', { name: '' })];
+    expect(renameSearch(unnamed, 'a', '')).toEqual(unnamed);
   });
 });
 

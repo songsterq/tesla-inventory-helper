@@ -285,6 +285,16 @@
   text-decoration: underline;
 }
 
+/* No custom name: the description is the label, so let it wrap. */
+.name.unnamed {
+  font-weight: 500;
+  font-size: 12px;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
 .desc {
   font-size: 11px;
   line-height: 1.35;
