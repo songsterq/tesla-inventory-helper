@@ -35,6 +35,7 @@ import {
   rangeWriteSettled,
   removeSearch,
   renameSearch,
+  restoreRangeTarget,
   searchLabelShort,
   userSetRanges,
   type Bounds,
@@ -365,16 +366,21 @@ type ApplyResult = { applied: RangeKey[]; failed: RangeKey[] };
 async function applyRanges(ranges: SavedSearch['ranges']): Promise<ApplyResult> {
   const applied: RangeKey[] = [];
   const failed: RangeKey[] = [];
+  const targets: Partial<Record<RangeKey, SavedRange>> = {};
   for (const key of RANGE_KEYS) {
-    const target = ranges[key];
+    const initial = readRange(key);
+    const target = initial
+      ? restoreRangeTarget(ranges[key], initial.current, initial.bounds)
+      : ranges[key] ?? null;
     if (!target) continue;
+    targets[key] = target;
     if (await applyRange(key, target)) applied.push(key);
     else failed.push(key);
   }
   if (applied.length > 0) {
     await sleep(SLIDER_FINAL_PASS_MS);
     for (const key of applied) {
-      const target = ranges[key];
+      const target = targets[key];
       const r = readRange(key);
       if (!target || !r) continue;
       if (rangeWriteSettled(target, r.current, r.bounds ?? UNBOUNDED)) continue;
@@ -593,10 +599,13 @@ export default defineContentScript({
         if (!view) return { ok: false, reason: 'capture-failed' };
         const id = crypto.randomUUID().slice(0, 8);
         const search = createSavedSearch(view, location.href, Date.now(), id);
-        const result = addSearch(searches, search);
+        // Build from a fresh read so a save cannot overwrite a rename, delete,
+        // or save that arrived since this content script's watch last fired.
+        const current = await savedSearchesItem.getValue();
+        const result = addSearch(current, search);
         if (!result.ok) {
           if (result.reason === 'duplicate') {
-            const existing = searches.find((s) => s.id === result.existingId);
+            const existing = current.find((s) => s.id === result.existingId);
             return {
               ok: false,
               reason: 'duplicate',

@@ -422,6 +422,21 @@ export function renameSearch(searches: SavedSearches, id: string, name: string):
 
 export type Bounds = { min: number; max: number };
 
+// A missing saved range means the slider was at its bounds when the search was
+// saved. When restoring in place, turn that omission back into an explicit
+// bounds target if the page currently has a restriction; otherwise there is
+// nothing to write. A missing DOM bounds read means the slider is unavailable
+// on this page (for example Odometer on new inventory), so skip it.
+export function restoreRangeTarget(
+  saved: SavedRange | undefined,
+  current: Bounds,
+  bounds: Bounds | null,
+): SavedRange | null {
+  if (saved) return saved;
+  if (!bounds) return null;
+  return current.min === bounds.min && current.max === bounds.max ? null : bounds;
+}
+
 const clamp = (n: number, b: Bounds): number => Math.min(Math.max(n, b.min), b.max);
 
 // A saved value can fall outside today's data-driven bounds (inventory moved).

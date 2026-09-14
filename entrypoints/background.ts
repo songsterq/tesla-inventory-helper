@@ -175,9 +175,12 @@ async function openSavedSearch(
   if (!search) return { ok: false };
   try {
     if (newTab) {
-      const tab = await browser.tabs.create({ url: search.url, active: true });
+      // Create a non-matching page first so the destination content script
+      // cannot ask for its one-shot restore before the queue entry exists.
+      const tab = await browser.tabs.create({ url: 'about:blank', active: true });
       if (tab.id === undefined) return { ok: false };
       await queueSearchRestore(tab.id, search);
+      await browser.tabs.update(tab.id, { url: search.url });
       return { ok: true };
     }
     if (senderTabId === undefined) return { ok: false };

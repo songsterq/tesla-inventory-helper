@@ -22,6 +22,7 @@ import {
   rangeWriteSettled,
   removeSearch,
   renameSearch,
+  restoreRangeTarget,
   searchLabel,
   searchLabelShort,
   SYNC_ITEM_BUDGET_BYTES,
@@ -387,6 +388,16 @@ describe('addSearch / findDuplicate / removeSearch / renameSearch', () => {
 });
 
 describe('restore helpers', () => {
+  it('restores an omitted saved range to the page bounds when currently restricted', () => {
+    const bounds = { min: 2020, max: 2026 };
+    expect(restoreRangeTarget(undefined, { min: 2023, max: 2026 }, bounds)).toEqual(bounds);
+    expect(restoreRangeTarget(undefined, bounds, bounds)).toBeNull();
+    expect(restoreRangeTarget(undefined, { min: 2023, max: 2026 }, null)).toBeNull();
+    expect(
+      restoreRangeTarget({ min: 2024, max: 2026 }, { min: 2023, max: 2026 }, bounds),
+    ).toEqual({ min: 2024, max: 2026 });
+  });
+
   it('clamps a saved range into current bounds and keeps min ≤ max', () => {
     expect(clampRange({ min: 5000, max: 30000 }, { min: 2000, max: 98000 })).toEqual({ min: 5000, max: 30000 });
     expect(clampRange({ min: 5000, max: 120000 }, { min: 2000, max: 98000 })).toEqual({ min: 5000, max: 98000 });
