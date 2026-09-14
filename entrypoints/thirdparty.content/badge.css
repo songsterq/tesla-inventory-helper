@@ -1,17 +1,53 @@
+/* Light is the default; the dark palette is a token swap under the viewer's
+   system setting. Tokens mirror entrypoints/content/searchPanel.css so both
+   surfaces read as one extension — keep the two palettes in step. */
 :host {
   display: block !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.4;
-  color: #f5f5f5;
+  color: #171a20;
+
+  --panel-bg: #ffffff;
+  --panel-header-bg: #f6f6f7;
+  --panel-border: #e2e3e5;
+  --panel-text: #171a20;
+  --panel-title: #171a20;
+  --panel-muted: #6b6f76;
+  --panel-faint: #8a8f98;
+  --icon-fg: #6b6f76;
+  --icon-hover-bg: #dfdfe1;
+  --icon-hover-fg: #171a20;
+  /* The brand mark is a white plate with a red glyph. On a light header the
+     plate would vanish anyway, so drop it and let the glyph stand alone. */
+  --brand-plate: transparent;
+  --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --panel-bg: #1a1a1a;
+    --panel-header-bg: #232323;
+    --panel-border: #2e2e2e;
+    --panel-text: #f5f5f5;
+    --panel-title: #ffffff;
+    --panel-muted: #888888;
+    --panel-faint: #777777;
+    --icon-fg: #aaaaaa;
+    --icon-hover-bg: #333333;
+    --icon-hover-fg: #ffffff;
+    --brand-plate: #ffffff;
+    --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  }
 }
 
 .panel {
   width: 280px;
-  background: #1a1a1a;
-  color: #f5f5f5;
+  background: var(--panel-bg);
+  color: var(--panel-text);
+  border: 1px solid var(--panel-border);
   border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--panel-shadow);
   overflow: hidden;
 }
 
@@ -20,8 +56,8 @@
   align-items: center;
   gap: 8px;
   padding: 10px 10px 10px 12px;
-  background: #232323;
-  border-bottom: 1px solid #2e2e2e;
+  background: var(--panel-header-bg);
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .brand-icon {
@@ -29,13 +65,17 @@
   height: 18px;
   flex-shrink: 0;
   border-radius: 4px;
-  background: #1a1a1a;
+}
+
+/* Direct child only: the plate behind the glyph. The red marks live in a <g>. */
+.brand-icon > rect {
+  fill: var(--brand-plate);
 }
 
 .panel-title {
   flex: 1;
   font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: #fff;
+  color: var(--panel-title);
 }
 
 .close {
@@ -43,7 +83,7 @@
   height: 24px;
   border: none;
   background: transparent;
-  color: #aaa;
+  color: var(--icon-fg);
   border-radius: 6px;
   cursor: pointer;
   font: 600 18px/1 -apple-system, sans-serif;
@@ -53,8 +93,8 @@
 }
 
 .close:hover {
-  background: #333;
-  color: #fff;
+  background: var(--icon-hover-bg);
+  color: var(--icon-hover-fg);
 }
 
 .panel-body {
@@ -74,12 +114,12 @@
 }
 
 .label {
-  color: #888;
+  color: var(--panel-muted);
   flex-shrink: 0;
 }
 
 .value {
-  color: #f5f5f5;
+  color: var(--panel-text);
   font-weight: 500;
   text-align: right;
 }
@@ -88,14 +128,14 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   letter-spacing: 0.2px;
-  color: #fff;
+  color: var(--panel-title);
 }
 
 .panel-footer {
   padding: 8px 14px 10px;
   font-size: 10px;
-  color: #777;
-  border-top: 1px solid #2e2e2e;
+  color: var(--panel-faint);
+  border-top: 1px solid var(--panel-border);
   text-align: center;
   letter-spacing: 0.3px;
   text-transform: uppercase;

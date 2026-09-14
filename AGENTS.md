@@ -28,8 +28,10 @@ WXT (extension framework, wraps Vite), TypeScript, Vitest. Built artifacts land 
 | VIN decoder (pure functions) | `src/decoder.ts` |
 | Rule parser + evaluator | `src/rules.ts` |
 | Default seed rules | `src/defaultRules.ts` |
+| Saved searches (pure: types, description, caps, restore helpers) | `src/savedSearches.ts` |
 | `chrome.storage.sync` items | `src/storage.ts` |
 | Tesla.com content script | `entrypoints/content/` |
+| Saved-searches on-page panel | `entrypoints/content/searchPanel.ts` (+ `.css`, imported `?raw`) |
 | Third-party VIN popover | `entrypoints/thirdparty.content/` |
 | Toolbar popup | `entrypoints/popup/` |
 | Manifest source | `wxt.config.ts` (WXT generates the real `manifest.json`) |
@@ -92,6 +94,7 @@ To push a corrected default to those users, bump `version` on `rulesItem` and ad
 - VIN detection scans `document.documentElement.outerHTML` (not `innerText`) — sites often keep VINs in attributes or JSON-LD blobs that `innerText` misses.
 - Default-open. × hides for the current page-load only (a reload restores it). The popup's "Highlight Matches" toggle is the global off-switch — it controls both surfaces via `highlightingEnabledItem` in storage.
 - Renders in a closed shadow DOM with defensive `!important` inline styles on the host wrapper. Avoid `all: initial` on the host — it resets `display` to `inline` and collapses the popover.
+- Colors are tokens on `:host` with a `prefers-color-scheme: dark` swap, mirroring `entrypoints/content/searchPanel.css` — keep the two palettes in step, and never give a panel color its only definition inside the dark block. The brand plate behind the glyph is `--brand-plate`, applied via `.brand-icon > rect` (direct child only; the red marks sit in a `<g>`): white in dark, transparent in light, where a white plate would vanish into the header anyway.
 - `DEBUG` constant in `entrypoints/thirdparty.content/index.ts` controls `console.debug` output. Must be `false` for release builds.
 
 ## Tesla.com URL handling
@@ -113,6 +116,19 @@ chrome.alarms.create('tih:auto-check', { when: Date.now() + 500 })
 ```
 
 This runs the exact `onAlarm` path (`runCheck('alarm')`), so notifications are enabled. Gotchas: Chrome clamps short alarm delays to ~30s on packed builds; the run needs a non-empty watchlist and no run already in progress; and a car only notifies if it *changes during that run* (an already-sold car won't re-notify by design).
+
+## Saved searches
+
+Lets a shopper save the current inventory listing view (used **and** new pages) and re-open it with every filter re-applied, from the on-page "Saved searches" pill or the popup. Exists because of a tesla.com quirk, verified in the browser (Sep 2026):
+
+- Checkbox/radio filters, sort (`arrangeby`), `zip` and `range` live in the URL. The three **sliders** — Payment (`paymentRange`), Mileage (`Odometer`), Year (`Year`) — do not, and Tesla **ignores them if passed as query params**. On load it also rewrites the URL, dropping unknown params and any `#hash`. So a saved search = normalized URL + slider values, and the sliders must be written back into the DOM after the page loads. The URL hash can't carry restore state.
+- **Restore hand-off is background-brokered.** `tih:open-search {id, newTab}` → the worker writes `session:pendingSearches[tabId]` and then navigates (`tabs.update` for the on-page panel, `tabs.create` for the popup). The content script asks `tih:pending-search` on boot; the worker returns-and-deletes the entry (120 s TTL, cleared on `tabs.onRemoved`). Reads and writes are serialized on one promise chain so a fast tab can't read ahead of the write. `session` rather than a worker-local Map because the worker can die between `tabs.create` and the page's `document_idle`. **Content scripts must never read `session:` storage** — no `setAccessLevel` is called, so it's background-only. If the current page already *is* the saved URL (`isSameSearchUrl`, which sorts params and drops the hash), the panel applies the sliders in place with no navigation.
+- **Sidebar DOM contract** (all selectors centralized in the brittle section of `entrypoints/content/index.ts`): `div.filter-content-wrapper` holds one `div.filter.filter-<KEY>` per group, KEY being the URL param name (`Model`, `TRIM`, `PaymentType`, `paymentRange`, `Odometer`, `Year`, `DemoDrive`, `PAINT`, `WHEELS`, `INTERIOR`, `AUTOPILOT`, `CABIN_CONFIG`, `ADL_OPTS`, `VehicleHistory`); titles in `details > summary`; inputs carry `data-id="<VALUE>-<KEY>-filter"` except Paint/Interior, so labels are read via `label[for=id]`. Sliders: text boxes `input[name="inputMin-<KEY>"]` / `inputMax-<KEY>` (formatted values like `$25,000`), bounds on the two `input.dual-range-slider-input[type=range]` in the same widget. The payment boxes sit inside the `filter-PaymentType` group, not `filter-paymentRange`. New pages lack Odometer/Year/DemoDrive/VehicleHistory and the sort `select[data-id="sort-by-dropdown"]`.
+- **The only write path that works**: on the *text* box, the native `HTMLInputElement.prototype.value` setter, then `input`, `change`, `keydown Enter` (bubbling) and `blur` (`writeRangeEnd`). Plain digits are accepted. Dispatching on the range inputs moves the thumbs but never refetches. Writes are verified and retried (`applyRange`): Tesla clamps each end against the other's current value (`planRangeWrites` orders the two writes) and against the data-driven bounds (`clampRange` / `rangeWriteSettled` treat the clamped value as success, so a saved value outside today's bounds can't loop forever). Keys apply sequentially, then one settle pass re-checks after the results load.
+- **Storage**: `sync:savedSearches` (roams). Chrome caps a sync item at 8 KB, so the record is slim (the description string is computed at save time; only sliders moved off their bounds are stored) and `addSearch` enforces `MAX_SAVED_SEARCHES = 12` plus a 7,000-byte serialized budget (`'quota'`). Names are optional and empty by default — the description is the label until the user adds one via the pencil (an emptied name clears it); descriptions are never editable. No generated names on purpose: "Used Model Y (2)" carries nothing the description doesn't.
+- **Placement**: the pill is injected *inline* into `section.inventory-header-wrapper > div.view-options` (left of the sort dropdown; that div is empty on new pages), not fixed. The section is sticky, so the pill stays visible on scroll without covering anything; Tesla's site header is not sticky and its top-right is the Menu button. Closed shadow DOM, defensive `!important` host styles, no `all: initial` (collapses the panel). Tesla re-renders that row, so `mountSearchPanel` is idempotent and re-run from `apply()`; open/closed state and status text live in module variables and survive a re-mount.
+- **Styling**: the pill carries the same amber pulse as a matched car (`tih-pill-pulse` in `searchPanel.css`, a scaled-down copy of `tih-pulse` in `entrypoints/content/style.css` — keep the two in step), and stays light regardless of system theme because it sits in Tesla's always-light toolbar. The dropdown panel is the opposite: light by default with a `prefers-color-scheme: dark` token swap on `:host`, so every panel color must come from a var defined in both blocks.
+- Popup rows open via the worker with `newTab: true`; the anchor keeps a real `href`, so a middle-click loads the bare URL without the sliders — accepted.
 
 ## Release process
 

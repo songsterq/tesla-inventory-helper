@@ -1,0 +1,382 @@
+/* Light is the default; the dark palette is a token swap under the viewer's
+   system setting. Only the panel follows the system theme — the pill stays
+   light because it sits inside Tesla's (always light) toolbar. */
+:host {
+  display: inline-block !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #171a20;
+  text-align: left;
+
+  --panel-bg: #ffffff;
+  --panel-header-bg: #f6f6f7;
+  --panel-border: #e2e3e5;
+  --panel-text: #171a20;
+  --panel-title: #171a20;
+  --panel-muted: #6b6f76;
+  --panel-faint: #8a8f98;
+  --row-bg: #f4f4f5;
+  --row-hover-bg: #eaeaec;
+  --icon-fg: #6b6f76;
+  --icon-hover-bg: #dfdfe1;
+  --icon-hover-fg: #171a20;
+  --input-bg: #ffffff;
+  --input-border: #c8c9cb;
+  --status-ok: #157f3c;
+  --status-error: #c1272d;
+  --name-hover: #e82127;
+  --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --panel-bg: #1a1a1a;
+    --panel-header-bg: #232323;
+    --panel-border: #2e2e2e;
+    --panel-text: #f5f5f5;
+    --panel-title: #ffffff;
+    --panel-muted: #9a9a9a;
+    --panel-faint: #777777;
+    --row-bg: #242424;
+    --row-hover-bg: #2b2b2b;
+    --icon-fg: #888888;
+    --icon-hover-bg: #383838;
+    --icon-hover-fg: #ffffff;
+    --input-bg: #111111;
+    --input-border: #555555;
+    --status-ok: #7ad38a;
+    --status-error: #ff7b7b;
+    --name-hover: #ff6b70;
+    --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Same amber pulse the HW4 card highlight uses, scaled down for a 32px pill.
+   Kept in sync with `tih-pulse` in entrypoints/content/style.css. */
+@keyframes tih-pill-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.55),
+      0 0 14px 3px rgba(255, 191, 0, 0.55);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.95),
+      0 0 22px 6px rgba(255, 191, 0, 0.85);
+  }
+}
+
+/* The pill sits in Tesla's toolbar, so it borrows Tesla's light outlined look
+   rather than the panel styling. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #c8c9cb;
+  background: #ffffff;
+  color: #171a20;
+  font: 500 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: tih-pill-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill {
+    animation: none;
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.75),
+      0 0 18px 4px rgba(255, 191, 0, 0.7);
+  }
+}
+
+.pill:hover {
+  background: #f4f4f4;
+}
+
+.pill[aria-expanded='true'] {
+  background: #171a20;
+  border-color: #171a20;
+  color: #ffffff;
+}
+
+.pill-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.pill-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #e82127;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pill-count[hidden] {
+  display: none;
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  background: var(--panel-bg);
+  color: var(--panel-text);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  box-shadow: var(--panel-shadow);
+  overflow: hidden;
+  z-index: 1;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  background: var(--panel-header-bg);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.panel-title {
+  flex: 1;
+  min-width: 0;
+  font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--panel-title);
+}
+
+.close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--icon-fg);
+  border-radius: 6px;
+  cursor: pointer;
+  font: 600 18px/1 -apple-system, sans-serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.close:hover {
+  background: var(--icon-hover-bg);
+  color: var(--icon-hover-fg);
+}
+
+.save {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #e82127;
+  color: #ffffff;
+  font: 600 12px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.save:hover {
+  filter: brightness(1.08);
+}
+
+.save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.status {
+  margin: 0;
+  padding: 10px 14px 0;
+  font-size: 12px;
+  color: var(--panel-muted);
+}
+
+.status[hidden] {
+  display: none;
+}
+
+.status.ok {
+  color: var(--status-ok);
+}
+
+.status.error {
+  color: var(--status-error);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.empty {
+  padding: 4px 6px 6px;
+  font-size: 12px;
+  color: var(--panel-muted);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 8px;
+  background: var(--row-bg);
+}
+
+.row:hover {
+  background: var(--row-hover-bg);
+}
+
+.row.current {
+  box-shadow: inset 3px 0 0 #e82127;
+}
+
+.row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.row-head .name {
+  min-width: 0;
+}
+
+/* Marks the one search the page currently shows (URL and sliders both match). */
+.tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e82127;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: var(--panel-title);
+  font: 600 13px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name:hover {
+  color: var(--name-hover);
+  text-decoration: underline;
+}
+
+/* No custom name: the description is the label, so let it wrap. */
+.name.unnamed {
+  font-weight: 500;
+  font-size: 12px;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.desc {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--panel-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rename {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--panel-title);
+  font: 600 13px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.rename:focus {
+  outline: 2px solid #e82127;
+  outline-offset: -1px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--icon-fg);
+  font: 400 15px/1 -apple-system, sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: var(--icon-hover-bg);
+  color: var(--icon-hover-fg);
+}
+
+.panel-footer {
+  padding: 8px 14px 10px;
+  font-size: 10px;
+  color: var(--panel-faint);
+  border-top: 1px solid var(--panel-border);
+  text-align: center;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}

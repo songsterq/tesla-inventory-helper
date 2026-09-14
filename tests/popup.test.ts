@@ -129,3 +129,28 @@ describe('popup watchlist reorder', () => {
     expect(src).toContain('dropToIndex');
   });
 });
+
+describe('popup saved searches', () => {
+  it('renders a saved-searches section between the watchlist and the rules editor', async () => {
+    const html = await readFile(new URL('../entrypoints/popup/index.html', import.meta.url), 'utf8');
+    expect(html).toContain('id="saved-searches"');
+    expect(html.indexOf('id="saved-searches"')).toBeGreaterThan(html.indexOf('id="saved-cars"'));
+    expect(html.indexOf('id="saved-searches"')).toBeLessThan(html.indexOf('class="rules-editor"'));
+  });
+
+  it('opens searches through the background worker, never chrome.tabs', async () => {
+    const src = await readFile(new URL('../entrypoints/popup/main.ts', import.meta.url), 'utf8');
+    expect(src).toContain("type: 'tih:open-search'");
+    expect(src).toContain('newTab: true');
+    expect(src).not.toContain('browser.tabs');
+    expect(src).not.toContain('chrome.tabs');
+  });
+
+  it('styles the list without adding a divider border', async () => {
+    const css = await readFile(new URL('../entrypoints/popup/style.css', import.meta.url), 'utf8');
+    expect(css).toContain('.saved-searches');
+    expect(css).toContain('.saved-search .saved-car-sub');
+    const borderTopMatches = css.match(/border-top: 1px solid var\(--border\);/g) ?? [];
+    expect(borderTopMatches.length).toBe(1);
+  });
+});
