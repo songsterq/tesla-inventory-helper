@@ -1,6 +1,7 @@
 import { storage } from 'wxt/utils/storage';
 import type { Rules } from './rules';
 import type { SavedCars } from './savedCars';
+import type { SavedSearch, SavedSearches } from './savedSearches';
 import { defaultRules, migrateRulesToV2, migrateRulesToV3 } from './defaultRules';
 import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck';
 
@@ -51,3 +52,24 @@ export const autoCheckHourItem = storage.defineItem<number>('sync:autoCheckHour'
 export const savedCarsItem = storage.defineItem<SavedCars>('local:savedCars', {
   fallback: [],
 });
+
+// Saved inventory searches (listing URL + slider state). Small records that a
+// shopper wants on every machine, so `sync` — with the count/byte caps in
+// src/savedSearches.ts keeping the item under Chrome's 8KB per-item limit.
+export const savedSearchesItem = storage.defineItem<SavedSearches>('sync:savedSearches', {
+  fallback: [],
+});
+
+// A search queued for restore in a specific tab, keyed by tab id. The
+// background worker writes it before navigating the tab and the content script
+// collects it via the `tih:pending-search` message. It lives in `session`
+// rather than a worker-local Map because the worker can be killed between
+// `tabs.create` and the new page's document_idle; `session` survives that and
+// is wiped when the browser exits, so a stale entry can never outlive its tab.
+// BACKGROUND-ONLY: content scripts have no storage.session access (no
+// setAccessLevel call), so never read this item from entrypoints/content.
+export type PendingSearch = { search: SavedSearch; queuedAt: number };
+export const pendingSearchesItem = storage.defineItem<Record<string, PendingSearch>>(
+  'session:pendingSearches',
+  { fallback: {} },
+);

@@ -1,6 +1,14 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
-import { autoCheckHourItem, autoCheckMinutesItem, savedCarsItem } from '../src/storage';
+import {
+  autoCheckHourItem,
+  autoCheckMinutesItem,
+  pendingSearchesItem,
+  savedCarsItem,
+  savedSearchesItem,
+  type PendingSearch,
+} from '../src/storage';
+import type { SavedSearch } from '../src/savedSearches';
 import {
   applyCheckResult,
   changedCount,
@@ -19,6 +27,9 @@ const SCRAPE_INTERVAL_MS = 750;
 const PER_CAR_TIMEOUT_MS = 30_000;
 const KEEPALIVE_MS = 20_000;
 const AUTO_CHECK_ALARM = 'tih:auto-check';
+// A queued saved-search restore that no content script collected within this
+// window is stale (the navigation failed or landed elsewhere) and is dropped.
+const PENDING_SEARCH_TTL_MS = 120_000;
 
 type ScrapeReply = {
   ready: boolean;
@@ -69,8 +80,20 @@ export default defineBackground(() => {
 
   browser.notifications.onClicked.addListener((id) => void handleNotificationClick(id));
 
-  browser.runtime.onMessage.addListener((msg) => {
+  // Drop a queued restore if its tab closes before the page asked for it.
+  browser.tabs.onRemoved.addListener((tabId) => void clearPendingSearch(tabId));
+
+  browser.runtime.onMessage.addListener((msg, sender) => {
     const type = (msg as { type?: string } | null)?.type;
+    if (type === 'tih:open-search') {
+      const { id, newTab } = msg as { id?: unknown; newTab?: unknown };
+      if (typeof id !== 'string') return Promise.resolve({ ok: false });
+      return openSavedSearch(id, newTab === true, sender.tab?.id);
+    }
+    if (type === 'tih:pending-search') {
+      const tabId = sender.tab?.id;
+      return tabId === undefined ? Promise.resolve(null) : takePendingSearch(tabId);
+    }
     if (type === 'tih:check-now') {
       if (runState.running) return Promise.resolve({ started: false, reason: 'busy' });
       void runCheck('manual');
@@ -82,6 +105,89 @@ export default defineBackground(() => {
     return undefined;
   });
 });
+
+// ─── Saved searches: hand a restore off to the tab that will load the URL ───
+//
+// tesla.com drops unknown query params and the URL hash on load, so the slider
+// state can't ride along in the URL. Instead the worker records "tab N should
+// restore search S" in session storage, navigates the tab, and the content
+// script collects the entry via `tih:pending-search` once it boots.
+
+// Serialize every read-modify-write of the pending map. A `tih:pending-search`
+// from a fast-loading tab must see the entry `openSavedSearch` is still writing,
+// so readers chain onto the same promise as writers.
+let pendingChain: Promise<unknown> = Promise.resolve();
+
+function withPendingSearches<T>(
+  fn: (map: Record<string, PendingSearch>) => { map: Record<string, PendingSearch>; result: T },
+): Promise<T> {
+  const run = pendingChain.then(async () => {
+    const now = Date.now();
+    const stored = await pendingSearchesItem.getValue();
+    const fresh: Record<string, PendingSearch> = {};
+    for (const [tabId, entry] of Object.entries(stored)) {
+      if (now - entry.queuedAt <= PENDING_SEARCH_TTL_MS) fresh[tabId] = entry;
+    }
+    const { map, result } = fn(fresh);
+    await pendingSearchesItem.setValue(map);
+    return result;
+  });
+  // Keep the chain alive past a failure so one bad write can't wedge the queue.
+  pendingChain = run.catch(() => undefined);
+  return run;
+}
+
+function queueSearchRestore(tabId: number, search: SavedSearch): Promise<void> {
+  return withPendingSearches((map) => ({
+    map: { ...map, [String(tabId)]: { search, queuedAt: Date.now() } },
+    result: undefined,
+  }));
+}
+
+function takePendingSearch(tabId: number): Promise<SavedSearch | null> {
+  return withPendingSearches((map) => {
+    const entry = map[String(tabId)];
+    if (!entry) return { map, result: null };
+    const rest = { ...map };
+    delete rest[String(tabId)];
+    return { map: rest, result: entry.search };
+  });
+}
+
+function clearPendingSearch(tabId: number): Promise<void> {
+  return withPendingSearches((map) => {
+    if (!(String(tabId) in map)) return { map, result: undefined };
+    const rest = { ...map };
+    delete rest[String(tabId)];
+    return { map: rest, result: undefined };
+  }).catch(() => undefined);
+}
+
+// Open a saved search: either a new active tab (popup) or the sender's own tab
+// (on-page panel). The pending entry is written before the navigation so the
+// content script can never boot ahead of it.
+async function openSavedSearch(
+  id: string,
+  newTab: boolean,
+  senderTabId: number | undefined,
+): Promise<{ ok: boolean }> {
+  const search = (await savedSearchesItem.getValue()).find((s) => s.id === id);
+  if (!search) return { ok: false };
+  try {
+    if (newTab) {
+      const tab = await browser.tabs.create({ url: search.url, active: true });
+      if (tab.id === undefined) return { ok: false };
+      await queueSearchRestore(tab.id, search);
+      return { ok: true };
+    }
+    if (senderTabId === undefined) return { ok: false };
+    await queueSearchRestore(senderTabId, search);
+    await browser.tabs.update(senderTabId, { url: search.url });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
 
 // Translate the stored frequency + anchor hour into a chrome.alarms schedule.
 // Off / corrupted values clear the alarm; otherwise a repeating alarm whose

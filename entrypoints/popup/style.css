@@ -515,6 +515,34 @@ button.link:hover {
   filter: none;
 }
 
+/* ─── Saved searches ─── */
+
+.searches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-searches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* Descriptions are the whole point of a saved search, so let them wrap to two
+   lines instead of clipping like the watchlist sub-line. */
+.saved-search .saved-car-sub {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* ─── Rules accordion ─── */
 
 .rules-editor {

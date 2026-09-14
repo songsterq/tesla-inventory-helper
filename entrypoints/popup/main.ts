@@ -5,6 +5,7 @@ import {
   highlightingEnabledItem,
   rulesItem,
   savedCarsItem,
+  savedSearchesItem,
 } from '../../src/storage';
 import { defaultRules } from '../../src/defaultRules';
 import { evalRules, parseRules } from '../../src/rules';
@@ -27,6 +28,7 @@ import {
   formatPrice,
   priceSymbol,
 } from '../../src/format';
+import { removeSearch, type SavedSearch, type SavedSearches } from '../../src/savedSearches';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const highlightingEnabledInput = document.getElementById(
@@ -43,6 +45,7 @@ const autoCheckSelect = document.getElementById('auto-check') as HTMLSelectEleme
 const autoCheckTimeSelect = document.getElementById('auto-check-time') as HTMLSelectElement;
 const checkProgress = document.getElementById('check-progress') as HTMLParagraphElement;
 const savedCarsList = document.getElementById('saved-cars') as HTMLUListElement;
+const savedSearchesList = document.getElementById('saved-searches') as HTMLUListElement;
 
 void init();
 
@@ -69,6 +72,9 @@ async function init() {
   if (changedCount(cars) > 0) await savedCarsItem.setValue(acknowledgeAll(cars));
   savedCarsItem.watch((next) => renderSavedCars(next));
   void pollProgress();
+
+  renderSavedSearches(await savedSearchesItem.getValue());
+  savedSearchesItem.watch((next) => renderSavedSearches(next));
 }
 
 function runTest() {
@@ -393,6 +399,72 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
     li.append(panel);
   }
 
+  return li;
+}
+
+// ─── Saved searches ───
+
+function renderSavedSearches(searches: SavedSearches) {
+  savedSearchesList.replaceChildren();
+  if (searches.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'saved-empty';
+    li.textContent = 'No saved searches yet. Use “Saved searches” on a Tesla inventory page.';
+    savedSearchesList.appendChild(li);
+    return;
+  }
+  for (const search of searches) savedSearchesList.appendChild(renderSearchRow(search));
+}
+
+// Opening goes through the background worker (`tih:open-search`), which creates
+// the tab and queues the slider restore — the popup never uses the tabs API itself.
+// The anchor keeps a real href so middle-click / copy-link still work, though
+// that path loads the bare URL without the sliders.
+function renderSearchRow(search: SavedSearch): HTMLLIElement {
+  const li = document.createElement('li');
+  li.className = 'saved-car saved-search';
+  li.dataset.id = search.id;
+
+  const info = document.createElement('div');
+  info.className = 'saved-car-info';
+
+  const title = document.createElement('a');
+  title.className = 'saved-car-title';
+  title.href = search.url;
+  title.target = '_blank';
+  title.rel = 'noopener noreferrer';
+  title.textContent = search.name;
+  title.title = search.description;
+  title.addEventListener('click', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    void browser.runtime
+      .sendMessage({ type: 'tih:open-search', id: search.id, newTab: true })
+      .catch(() => null);
+    window.close();
+  });
+  info.append(title);
+
+  const sub = document.createElement('span');
+  sub.className = 'saved-car-sub';
+  sub.textContent = search.description;
+  info.append(sub);
+
+  const remove = document.createElement('button');
+  remove.className = 'saved-car-remove';
+  remove.type = 'button';
+  remove.title = 'Delete saved search';
+  remove.setAttribute('aria-label', `Delete saved search ${search.name}`);
+  remove.textContent = '✕';
+  remove.addEventListener('click', async () => {
+    const searches = await savedSearchesItem.getValue();
+    await savedSearchesItem.setValue(removeSearch(searches, search.id));
+  });
+
+  const row = document.createElement('div');
+  row.className = 'saved-car-row';
+  row.append(info, remove);
+  li.append(row);
   return li;
 }
 
