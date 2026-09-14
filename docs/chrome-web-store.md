@@ -16,6 +16,10 @@ Source of truth for everything entered into the Chrome Web Store dashboard. Upda
 >
 > A soft amber glow lights up the cars that match what you're looking for as you scroll, so the right listings find you instead of the other way around. Works on Tesla's used inventory and order pages, in any country. Comes pre-configured to flag HW4 cars, and you can tune it from the toolbar popup any time.
 >
+> 🔖 Save your searches — sliders included
+>
+> Tesla's inventory page forgets your Payment, Mileage, and Year sliders every time you come back; only the checkbox filters survive in the URL. Set up the view you want once, click "Save current view" in the Saved searches button at the top of the page, and re-open it later with everything restored — filters, sliders, sort order, and location. Each saved search gets a plain-English summary of what it applies (for example "Used Model Y · LR AWD · Cash ≤ $35k · 5k–30k mi · 2023+ · Price ↑ · 98052 (200 mi)"), so you can keep several and tell them apart at a glance. Give one a name if you like, or don't. Works on new and used inventory, and your searches follow your Chrome profile.
+>
 > 🚗 On popular third-party car-listing sites
 >
 > When you land on a Tesla listing on a supported third-party site, a small dark panel appears in the top-right corner showing what the VIN actually means:
@@ -46,7 +50,7 @@ Source of truth for everything entered into the Chrome Web Store dashboard. Upda
 
 ## Single purpose
 
-> Help Tesla shoppers identify the characteristics of a Tesla car from its VIN — by highlighting matching cars on Tesla.com inventory and order pages, and by decoding any Tesla VIN encountered on third-party car-listing sites into a small on-page summary (model, year, plant, build number, likely Autopilot hardware).
+> Help Tesla shoppers find the car they want on Tesla.com inventory — by highlighting cars whose VIN matches the user's rules, by saving and restoring inventory searches (including the slider filters Tesla's own page does not keep in the URL), by monitoring saved listings for price and availability changes, and by decoding any Tesla VIN encountered on third-party car-listing sites into a small on-page summary (model, year, plant, build number, likely Autopilot hardware).
 
 ---
 
@@ -56,11 +60,13 @@ The justification form is reviewer-only, so it's safe to list specific hosts her
 
 ### `storage`
 
-> The extension stores user-configurable state in `chrome.storage.sync`: the list of VIN-matching rules (which decide what gets highlighted), an on/off toggle for highlighting, and the user's saved-car watchlist (the cars they have chosen to monitor for price and availability changes). Sync storage is used so the user's rules and watchlist follow their Chrome profile across devices. No data is uploaded to any third-party server.
+> The extension stores user-configurable state in `chrome.storage`: the list of VIN-matching rules (which decide what gets highlighted), an on/off toggle for highlighting, the user's saved inventory searches (a Tesla.com listing URL plus the slider filter values the user set, with a short text summary), and the user's saved-car watchlist (the cars they have chosen to monitor for price and availability changes). Rules, the toggle, and saved searches live in `sync` storage so they follow the user's Chrome profile across devices; the watchlist lives in `local` storage. `session` storage briefly holds which tab is about to re-open a saved search so the page can restore the slider filters once it loads; it is cleared as soon as it is read. No data is uploaded to any third-party server.
 
 ### `tabs`
 
-> The extension lets the user save specific car listings to a watchlist and check them for price or availability changes. To perform a check, the background service worker opens each saved car's own listing URL in an inactive background tab, reads the current price and availability from that page via a content-script message, and immediately closes the tab. The `tabs` permission is required to open these background tabs (`tabs.create`), message the content script running in them (`tabs.sendMessage`), and close them when the check finishes (`tabs.remove`). Tabs are only ever opened to URLs the user themselves saved, and are closed as soon as the page has been read. No browsing history or data from the user's other tabs is accessed.
+> The extension lets the user save specific car listings to a watchlist and check them for price or availability changes. To perform a check, the background service worker opens each saved car's own listing URL in an inactive background tab, reads the current price and availability from that page via a content-script message, and immediately closes the tab. The `tabs` permission is required to open these background tabs (`tabs.create`), message the content script running in them (`tabs.sendMessage`), and close them when the check finishes (`tabs.remove`). Tabs are only ever opened to URLs the user themselves saved, and are closed as soon as the page has been read.
+>
+> The same permission also serves the saved-searches feature: when the user re-opens a saved inventory search, the service worker navigates the current tab (`tabs.update`) or opens a new one (`tabs.create`) to that Tesla.com listing URL, and notes the tab id so the content script on that page knows which slider values to restore. No browsing history or data from the user's other tabs is accessed.
 
 ### `alarms`
 
@@ -74,7 +80,7 @@ The justification form is reviewer-only, so it's safe to list specific hosts her
 
 > The extension reads page content on a fixed set of car-shopping sites in order to detect Tesla VINs and either highlight matching cars (on Tesla.com) or show a small VIN-decoder popover (on third-party listing sites). No network requests are made to these hosts; the extension only inspects the DOM in the user's own browser.
 >
-> - **tesla.com/inventory/\*, tesla.com/\*/inventory/\*, tesla.com/\*/order/\***: required to read VINs from Tesla's inventory cards and order pages (US and international locales) and apply the user's highlight rules to matching cars.
+> - **tesla.com/inventory/\*, tesla.com/\*/inventory/\*, tesla.com/\*/order/\***: required to read VINs from Tesla's inventory cards and order pages (US and international locales) and apply the user's highlight rules to matching cars; and, on inventory listing pages, to add the "Saved searches" control, read the current filter sidebar when the user saves a view, and set the Payment/Mileage/Year slider values when the user re-opens one.
 > - **autotrader.com, autocheck.com, carfax.com, cargurus.com, cars.com, carvana.com, carmax.com, truecar.com, edmunds.com, kbb.com, findmyelectric.com, onlyusedtesla.com**: required to scan each vehicle detail page for a Tesla VIN. When one is found, the extension displays a popover decoding the VIN's model, year, plant, build number, and likely Autopilot hardware version.
 >
 > The extension does not request access to any host outside this list.
@@ -91,6 +97,7 @@ Source PNGs go in `~/Desktop/tih/`. Run `node scripts/build-screenshots.mjs` and
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 1.2.0 | (unreleased) | Saved searches: save the current inventory view (used and new) and re-open it with the Payment/Mileage/Year sliders restored; on-page panel plus a popup section. No new permissions; `storage` justification now covers `sync:savedSearches` and a transient `session` entry, `tabs` covers navigating/opening the tab for a saved search |
 | 1.1.3 | 2026-07-12 | Watchlist auto-checks can be anchored to a time of day (e.g. 9 AM); no new permissions. Popup "Check now" button relabeled "Check" |
 | 1.1.2 | 2026-07-01 | Automatic periodic watchlist checks (adds `alarms`) and desktop notifications on scheduled price-drop/sold changes (adds `notifications`); sold used cars detected via order-page redirect to inventory |
 | 1.1.0 | 2026-06-29 | Save & monitor watchlist: track saved cars for price/availability changes (adds `tabs` permission); enriched saved-car rows with price, trim, and paint color |
