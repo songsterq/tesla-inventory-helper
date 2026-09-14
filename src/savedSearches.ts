@@ -364,13 +364,25 @@ export function createSavedSearch(
   };
 }
 
-const rangesEqual = (a: SavedSearch['ranges'], b: SavedSearch['ranges']): boolean =>
+export const rangesEqual = (a: SavedSearch['ranges'], b: SavedSearch['ranges']): boolean =>
   RANGE_KEYS.every((key) => {
     const x = a[key];
     const y = b[key];
     if (!x && !y) return true;
     return !!x && !!y && x.min === y.min && x.max === y.max;
   });
+
+// "Current" means the page IS this search: same listing URL and the sliders
+// where the search saved them. `pageRanges` is the page's user-set slider state
+// (see userSetRanges), so several searches saved from one URL with different
+// sliders never all light up at once.
+export function isCurrentSearch(
+  search: SavedSearch,
+  href: string,
+  pageRanges: SavedSearch['ranges'],
+): boolean {
+  return isSameSearchUrl(href, search.url) && rangesEqual(search.ranges, pageRanges);
+}
 
 export function findDuplicate(searches: SavedSearches, candidate: SavedSearch): SavedSearch | undefined {
   return searches.find((s) => s.url === candidate.url && rangesEqual(s.ranges, candidate.ranges));

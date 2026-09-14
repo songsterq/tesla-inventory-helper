@@ -258,6 +258,31 @@
   box-shadow: inset 3px 0 0 #e82127;
 }
 
+.row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.row-head .name {
+  min-width: 0;
+}
+
+/* Marks the one search the page currently shows (URL and sliders both match). */
+.tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e82127;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
 .row-main {
   flex: 1;
   min-width: 0;

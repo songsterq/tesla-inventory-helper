@@ -10,6 +10,7 @@ import {
   defaultName,
   findDuplicate,
   groupsFromUrl,
+  isCurrentSearch,
   isInventoryListingPath,
   isSameSearchUrl,
   MAX_DESCRIPTION_LENGTH,
@@ -319,6 +320,26 @@ describe('createSavedSearch', () => {
     expect(createSavedSearch(fullView(), HREF, 1, 'a').name).toBe('');
     expect(createSavedSearch(fullView(), HREF, 1, 'a', 'x'.repeat(100)).name.length).toBe(MAX_NAME_LENGTH);
     expect(createSavedSearch(fullView(), HREF, 1, 'a', '   ').name).toBe('');
+  });
+});
+
+describe('isCurrentSearch', () => {
+  const url = 'https://www.tesla.com/inventory/used/my?arrangeby=plh&zip=98052';
+  const a = search('a', { url, ranges: { Year: { min: 2023, max: 2026 } } });
+  const b = search('b', { url, ranges: { paymentRange: { min: 25000, max: 38000 }, Year: { min: 2022, max: 2026 } } });
+
+  it('requires both the URL and the page sliders to match', () => {
+    const page = { Year: { min: 2023, max: 2026 } };
+    expect(isCurrentSearch(a, `${url}#x`, page)).toBe(true);
+    expect(isCurrentSearch(b, url, page)).toBe(false);
+    expect(isCurrentSearch(a, url, {})).toBe(false);
+    expect(isCurrentSearch(a, 'https://www.tesla.com/inventory/used/m3?arrangeby=plh&zip=98052', page)).toBe(false);
+  });
+
+  it('treats sliders at their bounds as "no range", matching a search saved that way', () => {
+    const plain = search('c', { url, ranges: {} });
+    expect(isCurrentSearch(plain, url, {})).toBe(true);
+    expect(isCurrentSearch(plain, url, { Year: { min: 2023, max: 2026 } })).toBe(false);
   });
 });
 

@@ -36,6 +36,7 @@ import {
   removeSearch,
   renameSearch,
   searchLabelShort,
+  userSetRanges,
   type Bounds,
   type CapturedGroup,
   type CapturedRange,
@@ -297,6 +298,17 @@ function captureView(): CapturedView | null {
     zip: params.get('zip'),
     range: Number.isFinite(radius) ? radius : null,
   };
+}
+
+// The page's current user-set slider state, in the same shape a search stores,
+// so the panel can tell which saved search (if any) the page is showing.
+function currentPageRanges(): SavedSearch['ranges'] {
+  const captured: CapturedView['ranges'] = {};
+  for (const key of RANGE_KEYS) {
+    const r = captureRange(key);
+    if (r) captured[key] = r;
+  }
+  return userSetRanges(captured);
 }
 
 // The ONLY write path that makes Tesla's React app accept a slider value and
@@ -600,7 +612,7 @@ export default defineContentScript({
           return { ok: false, reason: 'quota' };
         }
         searches = result.searches;
-        renderSearchList(searches, location.href);
+        renderSearchList(searches, location.href, currentPageRanges());
         return { ok: true, label: searchLabelShort(search) };
       },
       onOpen: async (search) => {
@@ -608,6 +620,7 @@ export default defineContentScript({
         if (isSameSearchUrl(location.href, search.url)) {
           setPanelStatus(`Applying "${searchLabelShort(search)}"…`, 'info');
           reportRestore(search, await applyRanges(search.ranges));
+          renderSearchList(searches, location.href, currentPageRanges());
           return;
         }
         setPanelStatus(`Opening "${searchLabelShort(search)}"…`, 'info');
@@ -636,6 +649,7 @@ export default defineContentScript({
       if (!search || typeof search !== 'object' || typeof search.description !== 'string') return;
       setPanelStatus(`Restoring "${searchLabelShort(search)}"…`, 'info');
       reportRestore(search, await applyRanges(search.ranges ?? {}));
+      renderSearchList(searches, location.href, currentPageRanges());
     };
 
     const apply = () => {
@@ -645,7 +659,7 @@ export default defineContentScript({
         // The saved-search pill lives on used AND new listing pages; nowhere else.
         if (isInventoryListingPath(path)) {
           mountSearchPanel(panelHandlers);
-          renderSearchList(searches, location.href);
+          renderSearchList(searches, location.href, currentPageRanges());
         } else {
           unmountSearchPanel();
         }
@@ -699,7 +713,7 @@ export default defineContentScript({
     // Keeps the on-page list in step with popup deletes and other devices.
     savedSearchesItem.watch((next) => {
       searches = next;
-      renderSearchList(searches, location.href);
+      renderSearchList(searches, location.href, currentPageRanges());
     });
 
     browser.runtime.onMessage.addListener((msg) => {

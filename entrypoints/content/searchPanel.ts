@@ -1,5 +1,5 @@
 import {
-  isSameSearchUrl,
+  isCurrentSearch,
   MAX_SAVED_SEARCHES,
   searchLabel,
   type SavedSearch,
@@ -57,8 +57,10 @@ let open = false;
 let editingId: string | null = null;
 let currentSearches: SavedSearches = [];
 let currentHref = '';
+let currentPageRanges: SavedSearch['ranges'] = {};
 let renderedSearches: SavedSearches | null = null;
 let renderedHref = '';
+let renderedRangesKey = '';
 let status: { text: string; kind: StatusKind } | null = null;
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 // True while the panel is open only because a status message opened it (e.g.
@@ -134,7 +136,7 @@ export function mountSearchPanel(h: SearchPanelHandlers): void {
 
   installDocumentListeners();
   renderedSearches = null; // force a render into the fresh DOM
-  renderSearchList(currentSearches, currentHref);
+  renderSearchList(currentSearches, currentHref, currentPageRanges);
   applyOpenState();
   renderStatus();
 }
@@ -152,16 +154,25 @@ export function unmountSearchPanel(): void {
 }
 
 // Re-render the list. Cheap to call on every page mutation: it returns early
-// unless the array reference or the page URL changed, and it never clobbers a
-// rename that is in progress.
-export function renderSearchList(searches: SavedSearches, href: string): void {
+// unless the array reference, the page URL, or the page's slider state changed,
+// and it never clobbers a rename that is in progress.
+export function renderSearchList(
+  searches: SavedSearches,
+  href: string,
+  pageRanges: SavedSearch['ranges'],
+): void {
   currentSearches = searches;
   currentHref = href;
+  currentPageRanges = pageRanges;
   if (!listEl) return;
   if (editingId !== null) return;
-  if (renderedSearches === searches && renderedHref === href) return;
+  const rangesKey = JSON.stringify(pageRanges);
+  if (renderedSearches === searches && renderedHref === href && renderedRangesKey === rangesKey) {
+    return;
+  }
   renderedSearches = searches;
   renderedHref = href;
+  renderedRangesKey = rangesKey;
 
   if (pillCountEl) {
     pillCountEl.textContent = String(searches.length);
@@ -176,7 +187,7 @@ export function renderSearchList(searches: SavedSearches, href: string): void {
     listEl.appendChild(empty);
     return;
   }
-  for (const search of searches) listEl.appendChild(renderRow(search, href));
+  for (const search of searches) listEl.appendChild(renderRow(search, href, pageRanges));
 }
 
 export function setPanelStatus(text: string, kind: StatusKind = 'info', autoClearMs?: number): void {
@@ -227,7 +238,7 @@ function applyOpenState(): void {
   if (!open && editingId !== null) {
     editingId = null;
     renderedSearches = null;
-    renderSearchList(currentSearches, currentHref);
+    renderSearchList(currentSearches, currentHref, currentPageRanges);
   }
 }
 
@@ -280,11 +291,16 @@ async function doSave(): Promise<void> {
   }
 }
 
-function renderRow(search: SavedSearch, href: string): HTMLLIElement {
+function renderRow(
+  search: SavedSearch,
+  href: string,
+  pageRanges: SavedSearch['ranges'],
+): HTMLLIElement {
   const li = document.createElement('li');
   li.className = 'row';
   li.dataset.id = search.id;
-  const isCurrent = isSameSearchUrl(href, search.url);
+  // URL and sliders both match: this row is the view on screen.
+  const isCurrent = isCurrentSearch(search, href, pageRanges);
   if (isCurrent) li.classList.add('current');
 
   const main = document.createElement('div');
@@ -297,12 +313,22 @@ function renderRow(search: SavedSearch, href: string): HTMLLIElement {
   name.className = search.name ? 'name' : 'name unnamed';
   name.type = 'button';
   name.textContent = label;
-  name.title = isCurrent ? 'Re-apply this search here' : 'Open this search';
+  name.title = isCurrent ? 'This is the view on screen' : 'Open this search';
   name.addEventListener('click', () => {
     if (!handlers) return;
     void handlers.onOpen(search);
   });
-  main.append(name);
+  if (isCurrent) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = 'Current';
+    const head = document.createElement('div');
+    head.className = 'row-head';
+    head.append(name, tag);
+    main.append(head);
+  } else {
+    main.append(name);
+  }
 
   if (search.name) {
     const desc = document.createElement('div');
@@ -365,7 +391,7 @@ function startRename(li: HTMLLIElement, search: SavedSearch): void {
     // Re-render from the current list so the row goes back to a button even if
     // the rename was a no-op (the storage watch won't fire for those).
     renderedSearches = null;
-    renderSearchList(currentSearches, currentHref);
+    renderSearchList(currentSearches, currentHref, currentPageRanges);
   };
 
   input.addEventListener('keydown', (event) => {
