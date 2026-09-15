@@ -4,7 +4,7 @@ export default defineConfig({
   srcDir: '.',
   manifest: {
     name: 'Tesla Inventory Helper',
-    description: 'Highlights Tesla inventory cars matching configurable VIN rules.',
+    description: 'Save Tesla inventory searches that stick. Watchlist + HW4 glow. Private & local.',
     permissions: ['storage', 'tabs', 'alarms', 'notifications'],
     host_permissions: [
       'https://www.tesla.com/inventory/*',
