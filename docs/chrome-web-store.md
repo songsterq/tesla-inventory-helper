@@ -6,43 +6,22 @@ Source of truth for everything entered into the Chrome Web Store dashboard. Upda
 
 ## Description
 
-🔋 Find the HW4 Tesla you actually want, faster.
+🔖 Save the Tesla inventory search Tesla won’t keep.
 
-A wave of pre-owned Teslas is entering the used market as 2023 leases come back through 2026. If you're shopping specifically for a Hardware 4 car — the only path to future Full Self-Driving upgrades — there's a problem: HW4 isn't labeled anywhere. You have to read the VIN. On every listing. Manually.
+Set up the view you want on Tesla.com — then come back to it later, intact. Year, mileage, payment: restored. No more rebuilding the same search every session.
 
-Tesla Inventory Helper does the reading for you, wherever you shop.
+🔔 Watchlist
+Save cars you’re serious about. Catch price drops and listings that disappear, so you can act before someone else does. Everything stays in your browser.
 
-✨ On Tesla.com
-
-A soft amber glow lights up the cars that match what you're looking for as you scroll, so the right listings find you instead of the other way around. Works on Tesla's used inventory and order pages, in any country. Comes pre-configured to flag HW4 cars, and you can tune it from the toolbar popup any time.
-
-🔖 Save your searches — sliders included
-
-Tesla's inventory page forgets your Payment, Mileage, and Year sliders every time you come back; only the checkbox filters survive in the URL. Set up the view you want once, click "Save current view" in the Saved searches button at the top of the page, and re-open it later with everything restored — filters, sliders, sort order, and location. Each saved search gets a plain-English summary of what it applies (for example "Used Model Y · LR AWD · Cash ≤ $35k · 5k–30k mi · 2023+ · Price ↑ · 98052 (200 mi)"), so you can keep several and tell them apart at a glance. Give one a name if you like, or don't. Works on new and used inventory, and your searches follow your Chrome profile.
-
-🚗 On popular third-party car-listing sites
-
-When you land on a Tesla listing on a supported third-party site, a small dark panel appears in the top-right corner showing what the VIN actually means:
-
-What it is — Model S, 3, X, Y, or Cybertruck
-What year it really is — verified against the VIN, not just what the seller wrote
-Where it was built
-Roughly where it sits in the production run
-Whether it's likely HW3 or HW4
-
-No more wondering whether a "2024 Model Y" is really a 2024, or whether a used listing is the HW4 you've been hunting.
-
-🔔 Save a watchlist and catch changes
-
-Found a car worth keeping an eye on? Save it to your watchlist and let the extension check back for you. With one click it revisits each saved listing and tells you what moved — price drops and whether the car is still available — so you can act before someone else does. Everything happens locally in your own browser, on the listings you chose; nothing is shared.
+✨ HW4 glow + VIN clarity
+On Tesla.com, matching cars light up as you scroll inventory and order pages — ready for HW4, tunable anytime, any country.
+On supported third-party listings, a small panel shows what the VIN really means: model, year, plant, and likely HW3 vs HW4.
 
 🔒 Private by design
+No account, no analytics, no servers, no tracking. Runs locally on Tesla.com and a small set of car-listing sites.
 
-Everything runs locally in your browser. No analytics, no servers, no tracking. The extension only reads pages on Tesla.com and a small set of car-listing sites — Chrome will show you the exact list when you install.
-
-⚠️ Disclaimer
-
-Independent third-party tool. Not affiliated with, endorsed by, or sponsored by Tesla, Inc. "Tesla" is used only to identify the VINs the extension recognizes.
+⚖️ Free & independent
+Built for serious Tesla shoppers. Independent third-party tool. Not affiliated with, endorsed by, or sponsored by Tesla, Inc. “Tesla” is used only to identify the VINs the extension recognizes.
 
 **Do not enumerate the supported third-party hostnames in this description.** A prior revision was rejected for keyword spam (Violation Yellow Argon, 2026-05-11) after listing all ten sites by name. Keep the public copy generic; users see the actual list at install time anyway.
 
