@@ -139,16 +139,17 @@ export type HistoryRow = {
 
 export const HISTORY_POPOVER_ROWS = 7;
 
-// Rows for the Track button's popover, newest first: each observation's value
-// and its change vs the observation before it. Only the true first entry (the
-// save-time baseline) reads "Tracked"; once it scrolls out of the window, the
-// oldest row shown still gets a real delta against its predecessor.
+// Rows for the Track button's popover, in chronological order (oldest on top)
+// over the most recent `limit` observations: each one's value and its change
+// vs the observation before it. Only the true first entry (the save-time
+// baseline) reads "Tracked"; once it scrolls out of the window, the oldest row
+// shown still gets a real delta against its predecessor.
 export function priceHistoryRows(car: SavedCar, limit = HISTORY_POPOVER_ROWS): HistoryRow[] {
   const shown = displayableHistory(car.history);
   // A history of nothing but legacy 'unknown' entries still has a baseline.
   const timeline = shown.length > 0 ? shown : [car.baseline];
   const start = Math.max(0, timeline.length - limit);
-  const rows = timeline.slice(start).map((cur, offset): HistoryRow => {
+  return timeline.slice(start).map((cur, offset): HistoryRow => {
     const i = start + offset;
     const row = { at: cur.at, value: formatHistoryValue(cur) };
     const prev = i > 0 ? timeline[i - 1] : undefined;
@@ -164,5 +165,4 @@ export function priceHistoryRows(car: SavedCar, limit = HISTORY_POPOVER_ROWS): H
       cls: diff < 0 ? 'down' : 'up',
     };
   });
-  return rows.reverse();
 }

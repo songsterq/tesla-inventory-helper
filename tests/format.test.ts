@@ -231,23 +231,23 @@ describe('priceHistoryRows', () => {
     ]);
   });
 
-  it('lists changes newest first, each against the one before', () => {
+  it('lists changes oldest first, each against the one before', () => {
     const history = [at(1), at(2, { price: 46490 }), at(3, { price: 45990 })];
     expect(priceHistoryRows(makeCar({ history }))).toEqual([
-      { at: 3, value: '$45,990', delta: '\u2212$500', cls: 'down' },
-      { at: 2, value: '$46,490', delta: '\u2212$500', cls: 'down' },
       { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+      { at: 2, value: '$46,490', delta: '\u2212$500', cls: 'down' },
+      { at: 3, value: '$45,990', delta: '\u2212$500', cls: 'down' },
     ]);
   });
 
   it('marks a rise', () => {
     const rows = priceHistoryRows(makeCar({ history: [at(1), at(2, { price: 47990 })] }));
-    expect(rows[0]).toEqual({ at: 2, value: '$47,990', delta: '+$1,000', cls: 'up' });
+    expect(rows[1]).toEqual({ at: 2, value: '$47,990', delta: '+$1,000', cls: 'up' });
   });
 
   it('shows a sale as Sold with no delta', () => {
     const history = [at(1), at(2, { availability: 'unavailable', price: null })];
-    expect(priceHistoryRows(makeCar({ history }))[0]).toEqual({
+    expect(priceHistoryRows(makeCar({ history }))[1]).toEqual({
       at: 2,
       value: 'Sold',
       delta: '',
@@ -255,13 +255,12 @@ describe('priceHistoryRows', () => {
     });
   });
 
-  it('caps at seven rows and gives the oldest shown row a real delta', () => {
+  it('keeps the seven most recent rows and gives the oldest shown a real delta', () => {
     const history = Array.from({ length: 10 }, (_, i) => at(i, { price: 50000 - i * 100 }));
     const rows = priceHistoryRows(makeCar({ history }));
     expect(rows).toHaveLength(7);
-    expect(rows[0]?.at).toBe(9);
-    expect(rows[6]?.at).toBe(3);
-    expect(rows[6]).toMatchObject({ delta: '\u2212$100', cls: 'down' });
+    expect(rows.map((r) => r.at)).toEqual([3, 4, 5, 6, 7, 8, 9]);
+    expect(rows[0]).toMatchObject({ delta: '\u2212$100', cls: 'down' });
     expect(rows.some((r) => r.delta === 'Tracked')).toBe(false);
     expect(priceHistoryRows(makeCar({ history }), 3)).toHaveLength(3);
   });
@@ -273,8 +272,8 @@ describe('priceHistoryRows', () => {
       at(3, { price: 46490 }),
     ];
     expect(priceHistoryRows(makeCar({ history }))).toEqual([
-      { at: 3, value: '$46,490', delta: '\u2212$500', cls: 'down' },
       { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+      { at: 3, value: '$46,490', delta: '\u2212$500', cls: 'down' },
     ]);
   });
 
@@ -292,9 +291,9 @@ describe('priceHistoryRows', () => {
   it('leaves the delta blank around an entry with no price', () => {
     const history = [at(1), at(2, { price: null }), at(3, { price: 45990 })];
     expect(priceHistoryRows(makeCar({ history }))).toEqual([
-      { at: 3, value: '$45,990', delta: '', cls: 'idle' },
-      { at: 2, value: '—', delta: '', cls: 'idle' },
       { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+      { at: 2, value: '—', delta: '', cls: 'idle' },
+      { at: 3, value: '$45,990', delta: '', cls: 'idle' },
     ]);
   });
 
