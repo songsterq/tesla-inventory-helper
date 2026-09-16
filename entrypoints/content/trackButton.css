@@ -1,0 +1,240 @@
+/* The Track button and its price popover. The button stays light (it sits on
+   Tesla's always-light cards, like the saved-searches pill); the popover is
+   light by default with a dark token swap under the viewer's system setting.
+   Token names mirror searchPanel.css and badge.css — keep the palettes in step,
+   and define every token in the light block, never only in the dark one. */
+:host {
+  display: block !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.3;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  color: #171a20;
+  text-align: left;
+
+  --panel-bg: #ffffff;
+  --panel-header-bg: #f6f6f7;
+  --panel-border: #e2e3e5;
+  --panel-text: #171a20;
+  --panel-title: #171a20;
+  --panel-muted: #6b6f76;
+  --panel-faint: #8a8f98;
+  --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  --delta-down: #1a7f37;
+  --delta-up: #e82127;
+  --delta-gone: #6b6f76;
+  --stop-fg: #c1272d;
+  --stop-hover-bg: #fdecec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --panel-bg: #1a1a1a;
+    --panel-header-bg: #232323;
+    --panel-border: #2e2e2e;
+    --panel-text: #f5f5f5;
+    --panel-title: #ffffff;
+    --panel-muted: #9a9a9a;
+    --panel-faint: #777777;
+    --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    --delta-down: #7ad38a;
+    --delta-up: #ff6b70;
+    --delta-gone: #9a9a9a;
+    --stop-fg: #ff7b7b;
+    --stop-hover-bg: #3a2323;
+  }
+}
+
+/* ─── Button ─── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 4px 12px;
+  border: 1px solid #e82127;
+  border-radius: 999px;
+  background: #e82127;
+  color: #ffffff;
+  font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* The button's colors are fixed, not tokens: it sits on Tesla's light card. */
+.btn.saved {
+  background: #ffffff;
+  color: #e82127;
+}
+
+.btn.saved.down {
+  color: #1a7f37;
+}
+
+.btn.saved.up {
+  color: #e82127;
+}
+
+.btn.saved.gone {
+  color: #6b6f76;
+  border-color: #c8c9cb;
+}
+
+.btn[aria-expanded='true'] {
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.3),
+    0 0 0 3px rgba(232, 33, 39, 0.25);
+}
+
+.btn:focus-visible {
+  outline: 2px solid #e82127;
+  outline-offset: 2px;
+}
+
+/* ─── Popover ─── */
+
+/* The transparent top padding bridges the gap under the button, so the
+   pointer never leaves the host while moving down into the card. */
+.popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  padding-top: 6px;
+  width: 256px;
+  max-width: calc(100vw - 32px);
+}
+
+.popover[hidden] {
+  display: none;
+}
+
+.card {
+  background: var(--panel-bg);
+  color: var(--panel-text);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  box-shadow: var(--panel-shadow);
+  overflow: hidden;
+}
+
+.pop-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  background: var(--panel-header-bg);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.pop-price {
+  font: 600 14px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color: var(--panel-title);
+}
+
+.pop-since {
+  font-size: 10px;
+  color: var(--panel-muted);
+  white-space: nowrap;
+}
+
+.pop-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pop-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--panel-muted);
+}
+
+.pop-time {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pop-value {
+  font-weight: 600;
+  color: var(--panel-text);
+  white-space: nowrap;
+}
+
+.pop-delta {
+  min-width: 52px;
+  text-align: right;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pop-delta.down {
+  color: var(--delta-down);
+}
+
+.pop-delta.up {
+  color: var(--delta-up);
+}
+
+.pop-delta.gone {
+  color: var(--delta-gone);
+}
+
+.pop-delta.base,
+.pop-delta.idle {
+  color: var(--panel-faint);
+  font-weight: 400;
+}
+
+.pop-empty {
+  margin: 0;
+  padding: 0 10px 8px;
+  font-size: 11px;
+  color: var(--panel-muted);
+}
+
+.pop-empty[hidden] {
+  display: none;
+}
+
+.pop-footer {
+  padding: 4px 6px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.stop {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--stop-fg);
+  font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.stop:hover {
+  background: var(--stop-hover-bg);
+}
+
+.stop:focus-visible {
+  outline: 2px solid var(--stop-fg);
+  outline-offset: -2px;
+}

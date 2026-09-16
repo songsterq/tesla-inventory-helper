@@ -1,8 +1,9 @@
 import { decodeTeslaVin } from './decoder';
-import type { CarSnapshot, SavedCar } from './savedCars';
+import { displayableHistory, type CarSnapshot, type SavedCar } from './savedCars';
 
-// Shared price/car formatting used by both the popup watchlist row and the
-// background change notification, so the two surfaces render identically.
+// Shared price/car formatting used by the popup watchlist row, the background
+// change notification, and the on-page Track button, so every surface renders
+// the same car identically.
 
 const CURRENCY_SYMBOL: Record<string, string> = {
   USD: '$',
@@ -96,4 +97,72 @@ const HISTORY_TIME_FMT = new Intl.DateTimeFormat(undefined, {
 
 export function formatHistoryTime(at: number): string {
   return HISTORY_TIME_FMT.format(at);
+}
+
+// A signed price change, e.g. "−$500" / "+$1,000". Uses U+2212 MINUS rather than
+// a hyphen so the sign reads as a sign. Callers skip a zero diff themselves.
+export function formatSignedDelta(diff: number, currency: string | null): string {
+  return `${diff < 0 ? '−' : '+'}${priceSymbol(currency)}${Math.abs(diff).toLocaleString()}`;
+}
+
+export type DeltaClass = 'down' | 'up' | 'gone' | 'idle';
+export type PriceStatus = { text: string; cls: DeltaClass };
+
+// A car's price status at a glance: a signed delta, "Sold", or a muted
+// "No change" / nothing yet. Drives the popup row's second line and the on-page
+// Track button's label. The delta is always current price vs the price when the
+// car was saved — a stable fact about the car, NOT gated on `lastChange` (which
+// is per-check and only drives the badge/notifications). Gating on lastChange
+// used to make the line flicker: a run that observed a movement showed the
+// delta, and the very next re-check diffed "no change since a minute ago" and
+// hid it again.
+export function formatPriceStatus(car: SavedCar): PriceStatus {
+  if (car.latest.availability === 'unavailable') return { text: 'Sold', cls: 'gone' };
+  const a = car.baseline.price;
+  const b = car.latest.price;
+  if (a !== null && b !== null && a !== b) {
+    const diff = b - a;
+    return { text: formatSignedDelta(diff, car.latest.currency), cls: diff < 0 ? 'down' : 'up' };
+  }
+  // Before the first check, say nothing — "No change" only appears once checked.
+  return car.lastCheckedAt === null
+    ? { text: '', cls: 'idle' }
+    : { text: 'No change', cls: 'idle' };
+}
+
+export type HistoryRow = {
+  at: number; // epoch ms; the renderer applies formatHistoryTime
+  value: string; // "$46,490" | "Sold" | "—"
+  delta: string; // "−$500" | "+$1,000" | "Tracked" | ''
+  cls: DeltaClass | 'base';
+};
+
+export const HISTORY_POPOVER_ROWS = 7;
+
+// Rows for the Track button's popover, newest first: each observation's value
+// and its change vs the observation before it. Only the true first entry (the
+// save-time baseline) reads "Tracked"; once it scrolls out of the window, the
+// oldest row shown still gets a real delta against its predecessor.
+export function priceHistoryRows(car: SavedCar, limit = HISTORY_POPOVER_ROWS): HistoryRow[] {
+  const shown = displayableHistory(car.history);
+  // A history of nothing but legacy 'unknown' entries still has a baseline.
+  const timeline = shown.length > 0 ? shown : [car.baseline];
+  const start = Math.max(0, timeline.length - limit);
+  const rows = timeline.slice(start).map((cur, offset): HistoryRow => {
+    const i = start + offset;
+    const row = { at: cur.at, value: formatHistoryValue(cur) };
+    const prev = i > 0 ? timeline[i - 1] : undefined;
+    if (!prev) return { ...row, delta: 'Tracked', cls: 'base' };
+    if (cur.availability === 'unavailable') return { ...row, delta: '', cls: 'gone' };
+    if (prev.price === null || cur.price === null || prev.price === cur.price) {
+      return { ...row, delta: '', cls: 'idle' };
+    }
+    const diff = cur.price - prev.price;
+    return {
+      ...row,
+      delta: formatSignedDelta(diff, cur.currency ?? prev.currency),
+      cls: diff < 0 ? 'down' : 'up',
+    };
+  });
+  return rows.reverse();
 }

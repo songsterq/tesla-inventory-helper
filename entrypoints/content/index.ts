@@ -18,6 +18,7 @@ import {
   parseTrim,
   pickBestPrice,
   removeCar,
+  type SavedCars,
 } from '../../src/savedCars';
 import { paintNameFromSwatchSrc } from '../../src/paint';
 import { pollWithTimeout } from '../../src/asyncPoll';
@@ -54,6 +55,12 @@ import {
   unmountSearchPanel,
   type SearchPanelHandlers,
 } from './searchPanel';
+import {
+  clearTrackButtons,
+  disposeTrackButtons,
+  mountTrackButton,
+  updateTrackButtons,
+} from './trackButton';
 import './style.css';
 
 // Result of scraping the current order page for the monitoring feature.
@@ -404,6 +411,8 @@ export default defineContentScript({
     let rules: Rules = await rulesItem.getValue();
     let highlightingEnabled = await highlightingEnabledItem.getValue();
     let searches: SavedSearches = await savedSearchesItem.getValue();
+    let cars: SavedCars = await savedCarsItem.getValue();
+    updateTrackButtons(cars);
     let scheduled = false;
 
     const setGlow = (el: HTMLElement, ruleName: string | null) => {
@@ -422,7 +431,7 @@ export default defineContentScript({
 
     const clearMonitorUi = () => {
       clearGlows();
-      document.querySelectorAll('.tih-monitor-btn').forEach((el) => el.remove());
+      clearTrackButtons();
     };
 
     // Tesla nests two `article[data-id]` elements per car: an outer wrapper with
@@ -479,88 +488,69 @@ export default defineContentScript({
       return dt ? 'All-Wheel Drive' : null;
     };
 
-    const createMonitorButton = (
+    // Scrape the card/summary the button lives in and add the car to the
+    // watchlist. Builds from a fresh read so a track can't overwrite a removal,
+    // reorder or check result that arrived since the last watch fired.
+    const trackCar = async (
       vin: string,
       host: HTMLElement,
       urlFor: () => string,
-      // Mileage lives outside the summary container on order pages, so allow a
-      // wider text source than `host`; inventory cards keep their own card text.
-      // innerText, not textContent — textContent glues adjacent nodes ("42,956
-      // miLocated in Renton"), which kills the \b after the unit.
-      mileageText: () => string = () => host.innerText ?? '',
-    ): HTMLButtonElement => {
-      const btn = document.createElement('button');
-      btn.className = 'tih-monitor-btn';
-      btn.type = 'button';
-
-      const refresh = async () => {
-        const cars = await savedCarsItem.getValue();
-        const saved = cars.some((c) => c.vin === vin);
-        btn.textContent = saved ? '✓ Tracking' : 'Track';
-        btn.classList.toggle('saved', saved);
-      };
-
-      btn.addEventListener('click', async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const cars = await savedCarsItem.getValue();
-        if (cars.some((c) => c.vin === vin)) {
-          await savedCarsItem.setValue(removeCar(cars, vin)); // toggle off
-          await refresh();
-          return;
-        }
-        const info = decodeTeslaVin(vin);
-        if (!info) return;
-        // Capture price + trim + paint from the card/summary this button lives in.
-        const scraped = scrapePriceIn(host);
-        const trim = scrapeTrim(host) ?? driveLabel(info.drivetrain);
-        const paintName = scrapePaintName(host);
-        const mileageSrc = mileageText();
-        const mileage = parseMileage(mileageSrc);
-        if (DEBUG) {
-          console.debug('[TIH] mileage scrape', {
-            vin,
-            result: mileage,
-            sample: mileageSrc.replace(/\s+/g, ' ').slice(0, 300),
-          });
-        }
-        const snapshot = makeSnapshot(scraped.value, scraped.currency, 'available', Date.now());
-        const result = addCar(
-          cars,
-          createSavedCar(info, urlFor(), snapshot, {
-            trim,
-            paintName,
-            mileage: mileage.value,
-            mileageUnit: mileage.unit,
-          }),
-        );
-        if (result.ok) await savedCarsItem.setValue(result.cars);
-        await refresh();
-      });
-
-      void refresh();
-      return btn;
+      mileageText: () => string,
+    ) => {
+      const info = decodeTeslaVin(vin);
+      if (!info) return;
+      const current = await savedCarsItem.getValue();
+      if (current.some((c) => c.vin === vin)) return;
+      // Capture price + trim + paint from the card/summary this button lives in.
+      const scraped = scrapePriceIn(host);
+      const trim = scrapeTrim(host) ?? driveLabel(info.drivetrain);
+      const paintName = scrapePaintName(host);
+      const mileageSrc = mileageText();
+      const mileage = parseMileage(mileageSrc);
+      if (DEBUG) {
+        console.debug('[TIH] mileage scrape', {
+          vin,
+          result: mileage,
+          sample: mileageSrc.replace(/\s+/g, ' ').slice(0, 300),
+        });
+      }
+      const snapshot = makeSnapshot(scraped.value, scraped.currency, 'available', Date.now());
+      const result = addCar(
+        current,
+        createSavedCar(info, urlFor(), snapshot, {
+          trim,
+          paintName,
+          mileage: mileage.value,
+          mileageUnit: mileage.unit,
+        }),
+      );
+      if (!result.ok) return;
+      await savedCarsItem.setValue(result.cars);
+      cars = result.cars;
+      updateTrackButtons(cars);
     };
 
-    // Universal placement: float the button on the host's edge as an absolute
-    // overlay (like the .tih-glow label) so it never shifts page content. Used
-    // identically for the order-page summary and each inventory card.
-    const attachMonitorButton = (
+    const untrackCar = async (vin: string) => {
+      const next = removeCar(await savedCarsItem.getValue(), vin);
+      await savedCarsItem.setValue(next);
+      cars = next;
+      updateTrackButtons(cars);
+    };
+
+    // Mileage lives outside the summary container on order pages, so allow a
+    // wider text source than `host`; inventory cards keep their own card text.
+    // innerText, not textContent — textContent glues adjacent nodes ("42,956
+    // miLocated in Renton"), which kills the \b after the unit.
+    const attachTrackButton = (
       host: HTMLElement,
       vin: string,
       urlFor: () => string,
-      mileageText?: () => string,
+      mileageText: () => string = () => host.innerText ?? '',
     ) => {
-      if (host.querySelector('.tih-monitor-btn')) return;
-      // A `display: contents` host generates no box, so it can never be the
-      // containing block for the button — the overlay would escape to the page
-      // corner. Skip rather than render something misplaced.
-      const style = getComputedStyle(host);
-      if (style.display === 'contents') return;
-      if (style.position === 'static') host.style.position = 'relative';
-      const btn = createMonitorButton(vin, host, urlFor, mileageText);
-      btn.classList.add('tih-monitor-card');
-      host.appendChild(btn);
+      mountTrackButton(host, vin, {
+        onTrack: () => trackCar(vin, host, urlFor, mileageText),
+        onUntrack: untrackCar,
+      });
     };
 
     const injectOrderButton = () => {
@@ -570,14 +560,14 @@ export default defineContentScript({
       if (!vin) return;
       // Odometer sits in a specs section outside the summary; the order page shows a
       // single car, so scan the whole page for it.
-      attachMonitorButton(container, vin, () => location.href, () => document.body?.innerText ?? '');
+      attachTrackButton(container, vin, () => location.href, () => document.body?.innerText ?? '');
     };
 
     const injectInventoryButtons = () => {
       inventoryCards().forEach((article) => {
         const vin = extractVin(article.getAttribute('data-id'));
         if (!vin) return;
-        attachMonitorButton(article, vin, () => resolveInventoryUrl(article, vin));
+        attachTrackButton(article, vin, () => resolveInventoryUrl(article, vin));
       });
     };
 
@@ -706,6 +696,7 @@ export default defineContentScript({
     ctx.onInvalidated(() => {
       observer.disconnect();
       unmountSearchPanel();
+      disposeTrackButtons();
     });
 
     rulesItem.watch((next) => {
@@ -723,6 +714,13 @@ export default defineContentScript({
     savedSearchesItem.watch((next) => {
       searches = next;
       renderSearchList(searches, location.href, currentPageRanges());
+    });
+
+    // Keeps every mounted Track button in step with popup removals and
+    // background price checks; buttons render from this cached array.
+    savedCarsItem.watch((next) => {
+      cars = next;
+      updateTrackButtons(cars);
     });
 
     browser.runtime.onMessage.addListener((msg) => {

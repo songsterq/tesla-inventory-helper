@@ -26,7 +26,7 @@ import {
   formatHistoryTime,
   formatHistoryValue,
   formatPrice,
-  priceSymbol,
+  formatPriceStatus,
 } from '../../src/format';
 import { removeSearch, searchLabel, type SavedSearch, type SavedSearches } from '../../src/savedSearches';
 
@@ -272,7 +272,7 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
   const current = document.createElement('span');
   current.className = 'price-current';
   current.textContent = formatPrice(car.latest);
-  const status = statusLine(car);
+  const status = formatPriceStatus(car);
   const statusEl = document.createElement('span');
   statusEl.className = `price-status ${status.cls}`;
   statusEl.textContent = status.text;
@@ -470,31 +470,6 @@ function renderSearchRow(search: SavedSearch): HTMLLIElement {
   row.append(info, remove);
   li.append(row);
   return li;
-}
-
-// The compact second line under the price: a signed delta, "Sold", or a muted
-// "No change" / "Not checked". The delta is always current price vs the price
-// when the car was saved — a stable fact about the car, NOT gated on
-// `lastChange` (which is per-check and only drives the badge/notifications).
-// Gating on lastChange used to make the line flicker: a run that observed a
-// movement showed the delta, and the very next re-check diffed "no change
-// since a minute ago" and hid it again.
-function statusLine(car: SavedCar): { text: string; cls: string } {
-  if (car.latest.availability === 'unavailable') return { text: 'Sold', cls: 'gone' };
-  const a = car.baseline.price;
-  const b = car.latest.price;
-  if (a !== null && b !== null && a !== b) {
-    const diff = b - a;
-    const sym = priceSymbol(car.latest.currency);
-    return {
-      text: `${diff < 0 ? '−' : '+'}${sym}${Math.abs(diff).toLocaleString()}`,
-      cls: diff < 0 ? 'down' : 'up',
-    };
-  }
-  // Before the first check, say nothing — "No change" only appears once checked.
-  return car.lastCheckedAt === null
-    ? { text: '', cls: 'idle' }
-    : { text: 'No change', cls: 'idle' };
 }
 
 async function onCheckNow() {
