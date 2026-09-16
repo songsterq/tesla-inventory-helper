@@ -32,6 +32,7 @@ WXT (extension framework, wraps Vite), TypeScript, Vitest. Built artifacts land 
 | `chrome.storage.sync` items | `src/storage.ts` |
 | Tesla.com content script | `entrypoints/content/` |
 | Saved-searches on-page panel | `entrypoints/content/searchPanel.ts` (+ `.css`, imported `?raw`) |
+| On-page Track button + price popover | `entrypoints/content/trackButton.ts` (+ `.css`, imported `?raw`) |
 | Third-party VIN popover | `entrypoints/thirdparty.content/` |
 | Toolbar popup | `entrypoints/popup/` |
 | Manifest source | `wxt.config.ts` (WXT generates the real `manifest.json`) |
@@ -94,14 +95,26 @@ To push a corrected default to those users, bump `version` on `rulesItem` and ad
 - VIN detection scans `document.documentElement.outerHTML` (not `innerText`) — sites often keep VINs in attributes or JSON-LD blobs that `innerText` misses.
 - Default-open. × hides for the current page-load only (a reload restores it). The popup's "Highlight Matches" toggle is the global off-switch — it controls both surfaces via `highlightingEnabledItem` in storage.
 - Renders in a closed shadow DOM with defensive `!important` inline styles on the host wrapper. Avoid `all: initial` on the host — it resets `display` to `inline` and collapses the popover.
-- Colors are tokens on `:host` with a `prefers-color-scheme: dark` swap, mirroring `entrypoints/content/searchPanel.css` — keep the two palettes in step, and never give a panel color its only definition inside the dark block. The brand plate behind the glyph is `--brand-plate`, applied via `.brand-icon > rect` (direct child only; the red marks sit in a `<g>`): white in dark, transparent in light, where a white plate would vanish into the header anyway.
+- Colors are tokens on `:host` with a `prefers-color-scheme: dark` swap, mirroring `entrypoints/content/searchPanel.css` and `entrypoints/content/trackButton.css` — keep the three palettes in step, and never give a panel color its only definition inside the dark block. The brand plate behind the glyph is `--brand-plate`, applied via `.brand-icon > rect` (direct child only; the red marks sit in a `<g>`): white in dark, transparent in light, where a white plate would vanish into the header anyway.
 - `DEBUG` constant in `entrypoints/thirdparty.content/index.ts` controls `console.debug` output. Must be `false` for release builds.
 
 ## Tesla.com URL handling
 
 Supports both US (`/inventory/...`, `/<model>/order/<VIN>`) and locale-prefixed international (`/<locale>/inventory/...`, `/<locale>/my/order/<VIN>`) URLs. The `apply()` router uses regexes (not `startsWith`) to handle both.
 
-Highlight and Track UI run only on **used** inventory (`/inventory/used/...`) and **used** order pages. Order eligibility: `titleStatus=used` → yes; `titleStatus=new` → no; param missing → yes only if the path has a real 17-char VIN (`isUsedInventoryPath` / `isUsedOrderUrl` in `src/vin.ts`). New-inventory/new-order pages clear any leftover glow/Track pills (SPA navigations). Manifest matches stay broad so the content script still loads on those URLs.
+Highlight and Track UI run only on **used** inventory (`/inventory/used/...`) and **used** order pages. Order eligibility: `titleStatus=used` → yes; `titleStatus=new` → no; param missing → yes only if the path has a real 17-char VIN (`isUsedInventoryPath` / `isUsedOrderUrl` in `src/vin.ts`). New-inventory/new-order pages clear any leftover glow/Track pills (SPA navigations) via `clearGlows` and `clearTrackButtons`. Manifest matches stay broad so the content script still loads on those URLs.
+
+## Track button
+
+The on-page button on used inventory cards (the innermost `article[data-id]`) and the used order page's `.vehicle-summary-container`. It lives in `entrypoints/content/trackButton.ts`; the track-time scrape (`trackCar`: price, trim, paint, mileage → `createSavedCar`) and `untrackCar` stay in `entrypoints/content/index.ts`, which passes them in as handlers. The module never touches storage.
+
+- **Label**: `Track` when untracked. Tracked, it shows `formatPriceStatus` (`src/format.ts`, the same function as the popup row's second line): the latest-vs-baseline delta (`−$500`, `+$1,000`), `Sold`, or `✓ Tracking` when nothing moved. The delta is deliberately not gated on `lastChange`.
+- **Popover**: the last 7 entries of `displayableHistory`, newest first, via `priceHistoryRows` — date, price, and change vs the entry before. Only the true first entry (the baseline) reads `Tracked`; once it scrolls out of the window, the oldest shown row still gets a real delta. A "Stop tracking" footer removes the car.
+- **Open state**: `open = tracked && (hovered || focused || pinned)`. Hover has a 150 ms leave delay, and the popover's transparent top padding bridges the gap under the button. Clicking a tracked button toggles the pin (clicking no longer untracks); Escape or a `mousedown` outside (`composedPath`) unpins. Only `:focus-visible` focus counts, so a mouse click can't leave it stuck open. One popover at a time: hovering another button closes the rest. `pinnedVin` is module-level so a pin survives Tesla re-rendering the card.
+- **Live updates**: the content script `watch`es `savedCarsItem` and pushes the array into `updateTrackButtons`; buttons render synchronously from that cache, never a per-button `getValue()`. A popup removal or a background check re-labels mounted buttons without a reload.
+- **Stacking**: `.tih-glow` gives a matched card `position: relative; z-index: 1`, a stacking context, so a popover inside can't paint over the next glowing card whatever its own z-index. While open, the module sets inline `z-index: 30 !important` on the card host and restores the previous value on close. Verified in the browser (Sep 2026): without it the next card's image covers the popover.
+- **Host**: closed shadow root, absolute overlay at `top: -12px; left: 12px` with defensive `!important` inline styles; no `all: initial`. `outline: none` on the host is load-bearing — the host matches `:focus` when its button is focused, and Tesla's global focus outline otherwise draws a grey box after every click. `display: contents` hosts are skipped. Only `click` is stopped at the host (Tesla's card wrapper navigates on click); `mousedown` must keep bubbling for the document-level outside-click closers.
+- **Styling**: the button keeps fixed light colors (it sits on Tesla's light cards); the popover uses panel tokens with a dark swap. `tests/popup.test.ts` checks that every dark-block token is also defined in the light block.
 
 ## Watchlist auto-checks
 

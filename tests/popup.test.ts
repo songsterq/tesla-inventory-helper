@@ -154,3 +154,67 @@ describe('popup saved searches', () => {
     expect(borderTopMatches.length).toBe(1);
   });
 });
+
+describe('track button', () => {
+  const read = (path: string) => readFile(new URL(path, import.meta.url), 'utf8');
+
+  it('has the popup share the price status helper with the on-page button', async () => {
+    const src = await read('../entrypoints/popup/main.ts');
+    expect(src).toContain('formatPriceStatus(car)');
+    expect(src).not.toContain('function statusLine');
+  });
+
+  it('keeps mounted buttons in step with the watchlist', async () => {
+    const src = await read('../entrypoints/content/index.ts');
+    expect(src).toContain('savedCarsItem.watch');
+    expect(src).toContain('updateTrackButtons(');
+    expect(src).toContain('clearTrackButtons()');
+    expect(src).toContain('disposeTrackButtons()');
+    expect(src).not.toContain('✓ Tracking');
+    expect(src).not.toContain('tih-monitor-btn');
+  });
+
+  it('keeps the track-time scrape intact in the content script', async () => {
+    const src = await read('../entrypoints/content/index.ts');
+    expect(src).toContain('scrapePriceIn(host)');
+    expect(src).toContain('scrapePaintName(host)');
+    expect(src).toContain("makeSnapshot(scraped.value, scraped.currency, 'available'");
+    expect(src).toContain('createSavedCar(info, urlFor(), snapshot');
+  });
+
+  it('renders in a storage-free closed shadow root with the popover wiring', async () => {
+    const src = await read('../entrypoints/content/trackButton.ts');
+    expect(src).toContain("attachShadow({ mode: 'closed' })");
+    expect(src).toContain('composedPath()');
+    expect(src).toContain("'Escape'");
+    expect(src).toContain('LEAVE_DELAY_MS = 150');
+    expect(src).toContain('priceHistoryRows(');
+    expect(src).toContain('formatPriceStatus(');
+    expect(src).toContain('Stop tracking');
+    // Lifts the card out of the `.tih-glow` stacking context while open.
+    expect(src).toContain("setProperty('z-index', OPEN_HOST_Z_INDEX, 'important')");
+    // Tesla's global :focus outline would otherwise box the host after a click.
+    expect(src).toContain("outline: 'none'");
+    expect(src).not.toContain('all: initial');
+    expect(src).not.toContain('savedCarsItem');
+  });
+
+  it('honors the popover `hidden` attribute and defines every dark token in light too', async () => {
+    const css = await read('../entrypoints/content/trackButton.css');
+    expect(css).toMatch(/\.popover\[hidden\]\s*\{[^}]*display:\s*none/);
+    expect(css).not.toContain('all: revert');
+    const darkAt = css.indexOf('@media (prefers-color-scheme: dark)');
+    expect(darkAt).toBeGreaterThan(0);
+    const light = css.slice(0, darkAt);
+    const darkBlock = css.slice(darkAt, css.indexOf('\n}\n', darkAt));
+    const darkTokens = [...darkBlock.matchAll(/(--[\w-]+):/g)].map((m) => m[1]);
+    expect(darkTokens.length).toBeGreaterThan(0);
+    for (const token of darkTokens) expect(light).toContain(`${token}:`);
+  });
+
+  it('drops the old light-DOM button rules but keeps the glow', async () => {
+    const css = await read('../entrypoints/content/style.css');
+    expect(css).not.toContain('.tih-monitor-btn');
+    expect(css).toContain('.tih-glow');
+  });
+});

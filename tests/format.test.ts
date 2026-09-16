@@ -7,6 +7,9 @@ import {
   formatHistoryTime,
   formatHistoryValue,
   formatPrice,
+  formatPriceStatus,
+  formatSignedDelta,
+  priceHistoryRows,
   priceSymbol,
 } from '../src/format';
 import type { CarSnapshot, SavedCar } from '../src/savedCars';
@@ -174,5 +177,131 @@ describe('formatHistoryTime', () => {
     expect(out).toContain('10');
     expect(out).toMatch(/\d:\d{2}/);
     expect(out.length).toBeGreaterThan(0);
+  });
+});
+
+describe('formatSignedDelta', () => {
+  it('signs with a real minus sign and groups digits', () => {
+    expect(formatSignedDelta(-500, 'USD')).toBe('\u2212$500');
+    expect(formatSignedDelta(1000, 'USD')).toBe('+$1,000');
+  });
+  it('uses the currency symbol, or none when unknown', () => {
+    expect(formatSignedDelta(-500, 'EUR')).toBe('\u2212€500');
+    expect(formatSignedDelta(-500, null)).toBe('\u2212500');
+  });
+});
+
+describe('formatPriceStatus', () => {
+  it('reports a drop since tracked', () => {
+    const car = makeCar({ latest: snap({ price: 46490 }) });
+    expect(formatPriceStatus(car)).toEqual({ text: '\u2212$500', cls: 'down' });
+  });
+  it('reports a rise since tracked', () => {
+    const car = makeCar({ latest: snap({ price: 47990 }) });
+    expect(formatPriceStatus(car)).toEqual({ text: '+$1,000', cls: 'up' });
+  });
+  it('lets Sold win over a price difference', () => {
+    const car = makeCar({ latest: snap({ price: 40000, availability: 'unavailable' }) });
+    expect(formatPriceStatus(car)).toEqual({ text: 'Sold', cls: 'gone' });
+  });
+  it("takes the symbol from the latest snapshot's currency", () => {
+    const car = makeCar({ latest: snap({ price: 46490, currency: 'CAD' }) });
+    expect(formatPriceStatus(car).text).toBe('\u2212CA$500');
+  });
+  it('says nothing before the first check and "No change" after', () => {
+    expect(formatPriceStatus(makeCar())).toEqual({ text: '', cls: 'idle' });
+    expect(formatPriceStatus(makeCar({ lastCheckedAt: 1 }))).toEqual({
+      text: 'No change',
+      cls: 'idle',
+    });
+  });
+  it('treats an unknown baseline price as no change', () => {
+    const car = makeCar({ baseline: snap({ price: null }), lastCheckedAt: 1 });
+    expect(formatPriceStatus(car)).toEqual({ text: 'No change', cls: 'idle' });
+  });
+});
+
+describe('priceHistoryRows', () => {
+  const at = (n: number, overrides: Partial<CarSnapshot> = {}) => snap({ at: n, ...overrides });
+
+  it('shows a lone baseline as the tracked row', () => {
+    const base = at(1);
+    expect(priceHistoryRows(makeCar({ baseline: base, history: [base] }))).toEqual([
+      { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+    ]);
+  });
+
+  it('lists changes newest first, each against the one before', () => {
+    const history = [at(1), at(2, { price: 46490 }), at(3, { price: 45990 })];
+    expect(priceHistoryRows(makeCar({ history }))).toEqual([
+      { at: 3, value: '$45,990', delta: '\u2212$500', cls: 'down' },
+      { at: 2, value: '$46,490', delta: '\u2212$500', cls: 'down' },
+      { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+    ]);
+  });
+
+  it('marks a rise', () => {
+    const rows = priceHistoryRows(makeCar({ history: [at(1), at(2, { price: 47990 })] }));
+    expect(rows[0]).toEqual({ at: 2, value: '$47,990', delta: '+$1,000', cls: 'up' });
+  });
+
+  it('shows a sale as Sold with no delta', () => {
+    const history = [at(1), at(2, { availability: 'unavailable', price: null })];
+    expect(priceHistoryRows(makeCar({ history }))[0]).toEqual({
+      at: 2,
+      value: 'Sold',
+      delta: '',
+      cls: 'gone',
+    });
+  });
+
+  it('caps at seven rows and gives the oldest shown row a real delta', () => {
+    const history = Array.from({ length: 10 }, (_, i) => at(i, { price: 50000 - i * 100 }));
+    const rows = priceHistoryRows(makeCar({ history }));
+    expect(rows).toHaveLength(7);
+    expect(rows[0]?.at).toBe(9);
+    expect(rows[6]?.at).toBe(3);
+    expect(rows[6]).toMatchObject({ delta: '\u2212$100', cls: 'down' });
+    expect(rows.some((r) => r.delta === 'Tracked')).toBe(false);
+    expect(priceHistoryRows(makeCar({ history }), 3)).toHaveLength(3);
+  });
+
+  it('skips legacy unknown entries and diffs across the gap', () => {
+    const history = [
+      at(1),
+      at(2, { availability: 'unknown', price: null, currency: null }),
+      at(3, { price: 46490 }),
+    ];
+    expect(priceHistoryRows(makeCar({ history }))).toEqual([
+      { at: 3, value: '$46,490', delta: '\u2212$500', cls: 'down' },
+      { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+    ]);
+  });
+
+  it('falls back to the baseline when every entry is unknown', () => {
+    const base = at(1);
+    const car = makeCar({
+      baseline: base,
+      history: [at(2, { availability: 'unknown', price: null })],
+    });
+    expect(priceHistoryRows(car)).toEqual([
+      { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+    ]);
+  });
+
+  it('leaves the delta blank around an entry with no price', () => {
+    const history = [at(1), at(2, { price: null }), at(3, { price: 45990 })];
+    expect(priceHistoryRows(makeCar({ history }))).toEqual([
+      { at: 3, value: '$45,990', delta: '', cls: 'idle' },
+      { at: 2, value: '—', delta: '', cls: 'idle' },
+      { at: 1, value: '$46,990', delta: 'Tracked', cls: 'base' },
+    ]);
+  });
+
+  it('does not mutate the stored history', () => {
+    const history = [at(1), at(2, { price: 46490 })];
+    const copy = structuredClone(history);
+    priceHistoryRows(makeCar({ history }));
+    expect(history).toEqual(copy);
   });
 });
