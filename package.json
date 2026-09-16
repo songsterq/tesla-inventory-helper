@@ -2,7 +2,7 @@
   "name": "tesla-inventory-helper",
   "description": "Save Tesla inventory searches that stick. Watchlist + HW4 glow. Private & local.",
   "private": true,
-  "version": "1.2.2",
+  "version": "1.2.3",
   "type": "module",
   "scripts": {
     "dev": "wxt",
