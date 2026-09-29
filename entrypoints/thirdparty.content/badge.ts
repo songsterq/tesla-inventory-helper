@@ -11,7 +11,8 @@ let root: HTMLElement | null = null;
 let panelEl: HTMLElement | null = null;
 let bodyEl: HTMLElement | null = null;
 
-const ICON_SVG = `<svg class="brand-icon" viewBox="0 0 128 128" aria-hidden="true"><rect width="128" height="128" rx="22" fill="#ffffff"/><g fill="#E82127"><rect x="20" y="32" width="88" height="18" rx="3"/><rect x="55" y="50" width="18" height="50" rx="3"/></g></svg>`;
+// Keep the geometry and colors in sync with public/icon.svg.
+const ICON_SVG = `<svg class="brand-icon" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2.75" fill="#ffffff"/><path d="M1 4V1h4v1H2v2zm10-3h4v3h-1V2h-3zM1 12h1v2h3v1H1zm13 0h1v3h-4v-1h3z" fill="#FFBF00"/><g fill="#E82127"><rect x="3" y="4" width="10" height="2" rx=".25"/><rect x="7" y="6" width="2" height="6" rx=".25"/></g></svg>`;
 
 export function mountBadge(info: TeslaVinInfo, options: MountOptions): void {
   unmountBadge();

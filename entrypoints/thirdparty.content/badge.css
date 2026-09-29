@@ -18,8 +18,8 @@
   --icon-fg: #6b6f76;
   --icon-hover-bg: #dfdfe1;
   --icon-hover-fg: #171a20;
-  /* The brand mark is a white plate with a red glyph. On a light header the
-     plate would vanish anyway, so drop it and let the glyph stand alone. */
+  /* The brand mark is a white plate with a red T and amber match frame. On a
+     light header the plate would vanish anyway, so drop only the plate. */
   --brand-plate: transparent;
   --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
 }
