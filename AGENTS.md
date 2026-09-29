@@ -69,13 +69,13 @@ Condition types:
 
 ## Model Y L
 
-The six-seat long-wheelbase Model Y (China Aug 2025; US as a **MY2027** from Jul 2026, built at Austin) is **not distinguishable from a regular Model Y by VIN yet**, and the decoder reports it as `Model Y` on purpose. What was checked (Sep 2026):
+The six-seat long-wheelbase Model Y (China Aug 2025; US as a **MY2027** from Jul 2026, built at Austin) keeps `pos 4 = Y`. The decoder labels it `Model Y L` from the restraint digit, **`pos 6 == B`**, and only on the Y line (`decodeModel` in `src/decoder.ts`):
 
-- Tesla kept `pos 4 = Y`. NHTSA's vPIC registers no separate series/trim/wheelbase/seat count for any 2026 or 2027 Model Y pattern, and the MY2026 Part 565 filing has only the usual Model Y codes.
-- No delivered Model Y L VIN had surfaced publicly (US first deliveries were fall 2026).
-- Best hypothesis: the restraint digit (`pos 6`). Tesla's scheme has `B` = FR, SR*2, TR*2 (a 2+2+2 layout, previously Model X six-seat only), while a regular Model Y ships as `D` (five-seat) or `A` (seven-seat). If real Model Y L VINs confirm `pos 6 == B`, add a `Model Y L` label from that — but not before, since Tesla has reused restraint codes loosely across lines.
-
-It doesn't affect the HW verdict: as a MY2027 it's HW4 by the year rule either way.
+- Tesla's Model Y service manual defines `B` as FR, SR*2, TR*2, a 2+2+2 layout. A regular Model Y is `C`/`D` (five-seat) or `A` (seven-seat, 2+3+2).
+- Confirmed on delivered US cars in Sep 2026 (`7SAYGBEE*VA…`: MY2027, Austin). NHTSA's vPIC still registers no separate series for it.
+- `B` also marks a six-seat Model X, so the check must stay scoped to `pos 4 == Y`.
+- The same digit drives the popover's **Seats** row (`MODEL_Y_SEATS_BY_POS6`): `A` = 7 (confirmed on a real "Seven Seat Layout" listing, `7SAYGAEE2PF910143`), `B` = 6, `C`/`D` = 5. It is decoded on the Y line only; every other line, and any undocumented Y code, shows `Unknown` rather than a guess.
+- `Model Y L` shares the Model Y drivetrain table and maps to the `my` order slug. It doesn't change the HW verdict or the Tesla.com rules (all `pos 4`-based): every Y L is 2025+, so HW4 by the year rule.
 
 ## Re-seeding stored rules
 

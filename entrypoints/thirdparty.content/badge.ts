@@ -78,6 +78,7 @@ function renderBody(info: TeslaVinInfo): void {
     <div class="vin"><span class="label">VIN</span><span class="value mono">${escape(info.vin)}</span></div>
     <div class="row"><span class="label">Model</span><span class="value">${escape(formatModel(info.model))}</span></div>
     <div class="row"><span class="label">Year</span><span class="value">${escape(formatYear(info.modelYear))}</span></div>
+    <div class="row"><span class="label">Seats</span><span class="value">${escape(formatSeats(info.seats))}</span></div>
     <div class="row"><span class="label">Drivetrain</span><span class="value">${escape(formatDrivetrain(info.drivetrain))}</span></div>
     <div class="row"><span class="label">Plant</span><span class="value">${escape(formatPlant(info.plant))}</span></div>
     <div class="row"><span class="label">Build</span><span class="value">${escape(formatSerial(info.serial))}</span></div>
@@ -91,6 +92,10 @@ function formatModel(model: TeslaModel | null): string {
 
 function formatYear(year: number | null): string {
   return year !== null ? String(year) : 'Unknown';
+}
+
+function formatSeats(seats: number | null): string {
+  return seats !== null ? String(seats) : 'Unknown';
 }
 
 function formatPlant(plant: TeslaPlant | null): string {
