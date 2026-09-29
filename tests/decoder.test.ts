@@ -32,6 +32,24 @@ describe('decodeTeslaVin — model line', () => {
   it('decodes Model Y', () => {
     expect(decodeTeslaVin('7SAYGDEE5PF633523')?.model).toBe('Model Y');
   });
+  // Model Y L keeps pos 4 = Y; pos 6 = B (FR, SR*2, TR*2) marks the 2+2+2
+  // six-seat layout. Shape of a delivered US car: 7SAYGBEE6VA******.
+  it('decodes Model Y L from restraint code B', () => {
+    const info = decodeTeslaVin('7SAYGBEE6VA000001');
+    expect(info?.model).toBe('Model Y L');
+    expect(info?.modelYear).toBe(2027);
+    expect(info?.plant).toBe('Austin');
+    expect(info?.drivetrain).toBe('Dual Motor');
+    expect(info?.likelyHw).toBe('HW4');
+  });
+  it('keeps five- and seven-seat Model Y as Model Y', () => {
+    expect(decodeTeslaVin('7SAYGDEE6VA000001')?.model).toBe('Model Y');
+    expect(decodeTeslaVin('7SAYGAEE6VA000001')?.model).toBe('Model Y');
+  });
+  // B is also the six-seat Model X code; it only means Y L on the Y line.
+  it('does not turn a six-seat Model X into a Model Y L', () => {
+    expect(decodeTeslaVin('7SAXCBE55VF000001')?.model).toBe('Model X');
+  });
   it('decodes Model S', () => {
     expect(decodeTeslaVin('5YJSA1E20NF000001')?.model).toBe('Model S');
   });
@@ -134,6 +152,27 @@ describe('decodeTeslaVin — drivetrain (position 8)', () => {
   });
   it('returns null for an undocumented position-8 code', () => {
     expect(decodeTeslaVin('5YJ3E1EZ1NF000001')?.drivetrain).toBeNull();
+  });
+});
+
+describe('decodeTeslaVin — seats (position 6)', () => {
+  it('decodes a seven-seat Model Y (A)', () => {
+    // Real listing on tesla.com showing "Seven Seat Layout".
+    expect(decodeTeslaVin('7SAYGAEE2PF910143')?.seats).toBe(7);
+  });
+  it('decodes a six-seat Model Y L (B)', () => {
+    expect(decodeTeslaVin('7SAYGBEE6VA000001')?.seats).toBe(6);
+  });
+  it('decodes five-seat Model Y (C / D)', () => {
+    expect(decodeTeslaVin('7SAYGCEE5PF000001')?.seats).toBe(5);
+    expect(decodeTeslaVin('7SAYGDEE5PF633523')?.seats).toBe(5);
+  });
+  it('returns null for an undocumented Model Y code', () => {
+    expect(decodeTeslaVin('7SAYGEEE5PF000001')?.seats).toBeNull();
+  });
+  it('returns null off the Y line, where the letters mean other layouts', () => {
+    expect(decodeTeslaVin('5YJXCBE20NF000001')?.seats).toBeNull();
+    expect(decodeTeslaVin('5YJ3E1EA1NF000001')?.seats).toBeNull();
   });
 });
 

@@ -79,6 +79,7 @@ const MODEL_SLUG: Record<TeslaModel, string> = {
   'Model 3': 'm3',
   'Model X': 'mx',
   'Model Y': 'my',
+  'Model Y L': 'my',
   Cybertruck: 'ct',
 };
 

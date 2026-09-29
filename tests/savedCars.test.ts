@@ -30,6 +30,7 @@ const info = (vin: string): TeslaVinInfo => ({
   plant: 'Fremont',
   serial: 123456,
   drivetrain: 'Dual Motor',
+  seats: null,
   likelyHw: 'HW4',
 });
 

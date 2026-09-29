@@ -1,5 +1,11 @@
 export type TeslaPlant = 'Fremont' | 'Austin' | 'Shanghai' | 'Berlin';
-export type TeslaModel = 'Model S' | 'Model 3' | 'Model X' | 'Model Y' | 'Cybertruck';
+export type TeslaModel =
+  | 'Model S'
+  | 'Model 3'
+  | 'Model X'
+  | 'Model Y'
+  | 'Model Y L'
+  | 'Cybertruck';
 export type TeslaHwGuess = 'HW3' | 'HW4' | 'Unknown';
 export type TeslaDrivetrain = 'Single Motor' | 'Dual Motor' | 'Tri Motor';
 
@@ -10,6 +16,7 @@ export type TeslaVinInfo = {
   plant: TeslaPlant | null;
   serial: number | null;
   drivetrain: TeslaDrivetrain | null;
+  seats: number | null;
   likelyHw: TeslaHwGuess;
 };
 
@@ -38,20 +45,42 @@ const PLANT_BY_WMI: Record<string, TeslaPlant> = {
   '7G2': 'Austin',
 };
 
-// Model Y L (the six-seat long-wheelbase Y; China Aug 2025, US as a MY2027 from
-// Jul 2026) still decodes as 'Model Y' here. Tesla kept pos 4 = Y for it, and
-// as of Sep 2026 NHTSA's vPIC registers no separate series, trim, wheelbase, or
-// seat count for any 2026/2027 Model Y VIN pattern, and no delivered Model Y L
-// VIN has surfaced publicly. The most plausible marker is the restraint digit
-// (pos 6): Tesla's own scheme uses `B` = FR, SR*2, TR*2, i.e. a 2+2+2 layout,
-// which no regular Model Y ships in (they use `D` five-seat or `A` seven-seat).
-// Don't act on that until real VINs confirm it — see AGENTS.md.
 const MODEL_BY_POS4: Record<string, TeslaModel> = {
   S: 'Model S',
   '3': 'Model 3',
   X: 'Model X',
   Y: 'Model Y',
   C: 'Cybertruck',
+};
+
+// Position 6 = restraint system, which on the Y line pins the seat layout
+// (Tesla's Model Y service manual): A = FR, SR*3, TR*2 (seven-seat, 2+3+2);
+// B = FR, SR*2, TR*2 (six-seat, 2+2+2); C / D = FR, SR*3 (five-seat).
+// Checked on real cars (Sep 2026): a seven-seat 7SAYGAEE*PF* listing on
+// tesla.com, and delivered US Model Y Ls as 7SAYGBEE*VA*.
+//
+// Only the Y line is decoded: other lines reuse these letters for different
+// layouts (B is also a six-seat Model X), and NHTSA's vPIC ignores pos 6.
+const MODEL_Y_SEATS_BY_POS6: Record<string, number> = { A: 7, B: 6, C: 5, D: 5 };
+
+// Model Y L (the six-seat long-wheelbase Y; China Aug 2025, US as a MY2027 from
+// Jul 2026) keeps pos 4 = Y. Its 2+2+2 layout (pos 6 = B) is one no regular
+// Model Y ships in, so that's what tells it apart.
+const MODEL_Y_L_POS6 = 'B';
+
+const MODEL_Y_DRIVETRAIN: Record<string, TeslaDrivetrain> = {
+  D: 'Single Motor',
+  E: 'Dual Motor',
+  F: 'Dual Motor',
+  J: 'Single Motor',
+  K: 'Dual Motor',
+  L: 'Single Motor',
+  R: 'Single Motor',
+  // S = single motor standard (2025+ service manual); T = the 2026 Juniper
+  // Performance's dual motor (vPIC decodes 7SAYGDET*TA as "Dual Motor:
+  // Performance", though the MY2026 PDF filing only lists D/E).
+  S: 'Single Motor',
+  T: 'Dual Motor',
 };
 
 // Position 8 = motor / drive unit. Letter codes overlap across models (e.g.
@@ -88,20 +117,8 @@ const DRIVETRAIN_BY_MODEL_AND_POS8: Record<TeslaModel, Record<string, TeslaDrive
     S: 'Single Motor',
     T: 'Dual Motor',
   },
-  'Model Y': {
-    D: 'Single Motor',
-    E: 'Dual Motor',
-    F: 'Dual Motor',
-    J: 'Single Motor',
-    K: 'Dual Motor',
-    L: 'Single Motor',
-    R: 'Single Motor',
-    // S = single motor standard (2025+ service manual); T = the 2026 Juniper
-    // Performance's dual motor (vPIC decodes 7SAYGDET*TA as "Dual Motor:
-    // Performance", though the MY2026 PDF filing only lists D/E).
-    S: 'Single Motor',
-    T: 'Dual Motor',
-  },
+  'Model Y': MODEL_Y_DRIVETRAIN,
+  'Model Y L': MODEL_Y_DRIVETRAIN,
   // NHTSA MY2024–2025 filings + Cybertruck service manual. `C` (single-motor
   // RWD) appears in the MY2025 filing only.
   Cybertruck: {
@@ -140,13 +157,25 @@ export function decodeTeslaVin(input: string): TeslaVinInfo | null {
   if (!isTeslaVin(vin)) return null;
 
   const plant = decodePlant(vin);
-  const model = MODEL_BY_POS4[vin.charAt(3)] ?? null;
+  const model = decodeModel(vin);
   const modelYear = decodeYear(vin.charAt(9));
   const serial = decodeSerial(vin.slice(11));
   const drivetrain = decodeDrivetrain(vin, model);
+  const seats = decodeSeats(vin, model);
   const likelyHw = guessHardware(model, plant, modelYear, serial);
 
-  return { vin, model, modelYear, plant, serial, drivetrain, likelyHw };
+  return { vin, model, modelYear, plant, serial, drivetrain, seats, likelyHw };
+}
+
+function decodeModel(vin: string): TeslaModel | null {
+  const model = MODEL_BY_POS4[vin.charAt(3)] ?? null;
+  if (model === 'Model Y' && vin.charAt(5) === MODEL_Y_L_POS6) return 'Model Y L';
+  return model;
+}
+
+function decodeSeats(vin: string, model: TeslaModel | null): number | null {
+  if (model !== 'Model Y' && model !== 'Model Y L') return null;
+  return MODEL_Y_SEATS_BY_POS6[vin.charAt(5)] ?? null;
 }
 
 function decodeDrivetrain(vin: string, model: TeslaModel | null): TeslaDrivetrain | null {
