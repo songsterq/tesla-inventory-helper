@@ -84,7 +84,7 @@ const V1_DEFAULT_RULES: Rules = [
 ];
 
 /**
- * `sync:rules` v1 → v2.
+ * Stored rules v1 → v2 (written when rules still lived in `sync:rules`).
  *
  * Users who never opened the rules editor have nothing stored and pick up the
  * new defaults from `fallback` on their own. This is for the ones who hit Save
@@ -150,7 +150,7 @@ const V2_DEFAULT_RULES: Rules = [
 ];
 
 /**
- * `sync:rules` v2 → v3.
+ * Stored rules v2 → v3 (written when rules still lived in `sync:rules`).
  *
  * Adds the `7G2` (Cybertruck) WMI to the 2024+ catch-all so used Cybertrucks
  * glow like every other HW4 car. Same contract as migrateRulesToV2: only an
@@ -163,4 +163,23 @@ export function migrateRulesToV3(stored: unknown): Rules {
   const parsed = parseRules(stored);
   if (parsed.ok && rulesEqual(parsed.rules, V2_DEFAULT_RULES)) return defaultRules;
   return stored as Rules;
+}
+
+// The stored rules' version and the chain that gets an older copy there. One
+// source for both the storage item (src/storage.ts) and the one-time copy out
+// of sync storage (src/syncMigration.ts), which upgrades on the way because the
+// local item's migrations only see the local copy's own version.
+export const RULES_STORAGE_VERSION = 3;
+export const RULES_MIGRATIONS: Record<number, (stored: unknown) => Rules> = {
+  2: migrateRulesToV2,
+  3: migrateRulesToV3,
+};
+
+// Run `stored` through every migration after `fromVersion`.
+export function upgradeRules(stored: unknown, fromVersion: number): unknown {
+  let value = stored;
+  for (let next = fromVersion + 1; next <= RULES_STORAGE_VERSION; next++) {
+    value = RULES_MIGRATIONS[next]?.(value) ?? value;
+  }
+  return value;
 }

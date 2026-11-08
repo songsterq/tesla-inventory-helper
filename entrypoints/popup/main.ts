@@ -6,7 +6,10 @@ import {
   rulesItem,
   savedCarsItem,
   savedSearchesItem,
+  searchWatchItem,
 } from '../../src/storage';
+import { newCountsById } from '../../src/searchWatch';
+import { whenStorageReady } from '../../src/storageReady';
 import { defaultRules } from '../../src/defaultRules';
 import { evalRules, parseRules } from '../../src/rules';
 import {
@@ -50,6 +53,9 @@ const savedSearchesList = document.getElementById('saved-searches') as HTMLUList
 void init();
 
 async function init() {
+  // Never render (or let Save write over) values the one-time copy out of sync
+  // storage hasn't landed yet.
+  await whenStorageReady();
   const rules = await rulesItem.getValue();
   highlightingEnabledInput.checked = await highlightingEnabledItem.getValue();
   textarea.value = JSON.stringify(rules, null, 2);
@@ -73,8 +79,21 @@ async function init() {
   savedCarsItem.watch((next) => renderSavedCars(next));
   void pollProgress();
 
-  renderSavedSearches(await savedSearchesItem.getValue());
-  savedSearchesItem.watch((next) => renderSavedSearches(next));
+  // Saved searches with their new-match chips. Opening the popup acknowledges
+  // the news for the toolbar badge (like the watchlist above), but each chip
+  // stays until its search is actually opened.
+  savedSearches = await savedSearchesItem.getValue();
+  searchNewCounts = newCountsById(await searchWatchItem.getValue());
+  renderSavedSearches();
+  savedSearchesItem.watch((next) => {
+    savedSearches = next;
+    renderSavedSearches();
+  });
+  searchWatchItem.watch((next) => {
+    searchNewCounts = newCountsById(next);
+    renderSavedSearches();
+  });
+  void browser.runtime.sendMessage({ type: 'tih:ack-search-badge' }).catch(() => null);
 }
 
 function runTest() {
@@ -404,7 +423,12 @@ function renderCarRow(car: SavedCar): HTMLLIElement {
 
 // ─── Saved searches ───
 
-function renderSavedSearches(searches: SavedSearches) {
+let savedSearches: SavedSearches = [];
+// Search id → cars matching it that this device hasn't seen (src/searchWatch.ts).
+let searchNewCounts: Record<string, number> = {};
+
+function renderSavedSearches() {
+  const searches = savedSearches;
   savedSearchesList.replaceChildren();
   if (searches.length === 0) {
     const li = document.createElement('li');
@@ -467,7 +491,19 @@ function renderSearchRow(search: SavedSearch): HTMLLIElement {
 
   const row = document.createElement('div');
   row.className = 'saved-car-row';
-  row.append(info, remove);
+  row.append(info);
+  const fresh = searchNewCounts[search.id] ?? 0;
+  if (fresh > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'search-new';
+    chip.textContent = `${fresh} new`;
+    chip.title =
+      fresh === 1
+        ? '1 car matched since you last opened this search'
+        : `${fresh} cars matched since you last opened this search`;
+    row.append(chip);
+  }
+  row.append(remove);
   li.append(row);
   return li;
 }

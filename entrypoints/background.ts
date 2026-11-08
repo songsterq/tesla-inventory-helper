@@ -3,9 +3,11 @@ import { browser } from 'wxt/browser';
 import {
   autoCheckHourItem,
   autoCheckMinutesItem,
+  migratedFromSyncItem,
   pendingSearchesItem,
   savedCarsItem,
   savedSearchesItem,
+  searchWatchItem,
   type PendingSearch,
 } from '../src/storage';
 import type { SavedSearch } from '../src/savedSearches';
@@ -15,16 +17,34 @@ import {
   makeSnapshot,
   type CarAvailability,
   type CarSnapshot,
-  type SavedCars,
 } from '../src/savedCars';
+import {
+  asInventoryRequest,
+  composeBadge,
+  normalizeVins,
+  pruneOrphans,
+  unackedTotal,
+  withBadgeAcked,
+  withBaseline,
+  withCheckResult,
+  withRequest,
+  withViewed,
+  type InventoryRequest,
+  type SearchResults,
+  type SearchWatch,
+} from '../src/searchWatch';
+import { LEGACY_SYNC_KEYS, planSyncToLocal } from '../src/syncMigration';
 import { planAlarm } from '../src/autoCheck';
 import { isSoldRedirect } from '../src/vin';
 import { pollWithTimeout } from '../src/asyncPoll';
 import { buildChangeNotification, toRunChange, type ChangeNotification, type RunChange } from '../src/notify';
 
-const BADGE_COLOR = '#e82127';
 const SCRAPE_INTERVAL_MS = 750;
 const PER_CAR_TIMEOUT_MS = 30_000;
+// How long the hidden check tab gets to boot its content script. Only the wait
+// for a first answer is bounded here; the paged fetch itself is bounded by the
+// content script's per-request timeout.
+const SEARCH_TAB_READY_MS = 30_000;
 const KEEPALIVE_MS = 20_000;
 const AUTO_CHECK_ALARM = 'tih:auto-check';
 // A queued saved-search restore that no content script collected within this
@@ -48,17 +68,33 @@ const runState = {
   currentVin: null as string | null,
 };
 
-export default defineBackground(() => {
-  browser.action.setBadgeBackgroundColor({ color: BADGE_COLOR }).catch(() => {});
+// The one-time copy of pre-v1.2.5 `sync` values into `local`. Every storage
+// read in this worker waits for it, and so does every message: the popup and
+// content scripts wait on `tih:storage-ready` (src/storageReady.ts).
+let storageReady: Promise<void> = Promise.resolve();
 
-  // Keep the badge in sync with the watchlist even after a worker restart.
-  void savedCarsItem.getValue().then(updateBadge);
-  savedCarsItem.watch((cars) => void updateBadge(cars));
+export default defineBackground(() => {
+  storageReady = migrateFromSync();
+
+  // Listeners register synchronously (an MV3 requirement for waking the worker);
+  // the startup work below them waits for storage.
+  void storageReady.then(() => {
+    void updateBadge();
+    void savedSearchesItem.getValue().then(pruneSearchWatch);
+    void reconcileAlarm();
+  });
+
+  // Keep the badge in sync with the watchlist and saved-search news, even after
+  // a worker restart.
+  savedCarsItem.watch(() => void updateBadge());
+  searchWatchItem.watch(() => void updateBadge());
+
+  // A deleted search takes its new-match state with it.
+  savedSearchesItem.watch((searches) => void pruneSearchWatch(searches));
 
   // Reconcile the auto-check alarm on startup and whenever either the frequency
   // or the anchor hour changes. Both are inputs to the same schedule, so a change
   // to either re-derives the alarm from the latest stored values.
-  void reconcileAlarm();
   autoCheckMinutesItem.watch(() => void reconcileAlarm());
   autoCheckHourItem.watch(() => void reconcileAlarm());
 
@@ -67,44 +103,71 @@ export default defineBackground(() => {
   // created at an arbitrary wall-clock time. onInstalled is the one event Chrome
   // guarantees fires on update — it forces the worker to start and re-anchor the
   // schedule to 9AM promptly, rather than waiting for the next incidental wake.
-  browser.runtime.onInstalled.addListener(() => void reconcileAlarm());
+  browser.runtime.onInstalled.addListener(() => void storageReady.then(reconcileAlarm));
 
   // Fire an automatic run when the alarm elapses — but never pile onto a run that
-  // is already going, and skip the no-op wake when the watchlist is empty.
+  // is already going, and skip the no-op wake when there is nothing to check.
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== AUTO_CHECK_ALARM || runState.running) return;
-    void savedCarsItem.getValue().then((cars) => {
-      if (cars.length > 0 && !runState.running) void runCheck('alarm');
+    void storageReady.then(hasAnythingToCheck).then((yes) => {
+      if (yes && !runState.running) void runCheck('alarm');
     });
   });
 
-  browser.notifications.onClicked.addListener((id) => void handleNotificationClick(id));
+  browser.notifications.onClicked.addListener(
+    (id) => void storageReady.then(() => handleNotificationClick(id)),
+  );
 
   // Drop a queued restore if its tab closes before the page asked for it.
   browser.tabs.onRemoved.addListener((tabId) => void clearPendingSearch(tabId));
 
   browser.runtime.onMessage.addListener((msg, sender) => {
     const type = (msg as { type?: string } | null)?.type;
-    if (type === 'tih:open-search') {
-      const { id, newTab } = msg as { id?: unknown; newTab?: unknown };
-      if (typeof id !== 'string') return Promise.resolve({ ok: false });
-      return openSavedSearch(id, newTab === true, sender.tab?.id);
-    }
-    if (type === 'tih:pending-search') {
-      const tabId = sender.tab?.id;
-      return tabId === undefined ? Promise.resolve(null) : takePendingSearch(tabId);
-    }
-    if (type === 'tih:check-now') {
-      if (runState.running) return Promise.resolve({ started: false, reason: 'busy' });
-      void runCheck('manual');
-      return Promise.resolve({ started: true });
-    }
-    if (type === 'tih:check-progress') {
-      return Promise.resolve({ ...runState });
-    }
-    return undefined;
+    if (typeof type !== 'string' || !type.startsWith('tih:')) return undefined;
+    return storageReady.then(() => handleMessage(type, msg, sender.tab?.id));
   });
 });
+
+function handleMessage(type: string, msg: unknown, senderTabId: number | undefined): unknown {
+  if (type === 'tih:storage-ready') return true;
+  if (type === 'tih:open-search') {
+    const { id, newTab } = msg as { id?: unknown; newTab?: unknown };
+    if (typeof id !== 'string') return { ok: false };
+    return openSavedSearch(id, newTab === true, senderTabId);
+  }
+  if (type === 'tih:pending-search') {
+    return senderTabId === undefined ? null : takePendingSearch(senderTabId);
+  }
+  if (type === 'tih:check-now') {
+    if (runState.running) return { started: false, reason: 'busy' };
+    void runCheck('manual');
+    return { started: true };
+  }
+  if (type === 'tih:check-progress') return { ...runState };
+  if (type === 'tih:search-viewed') return onSearchViewed(msg);
+  if (type === 'tih:search-baseline') return onSearchBaseline(msg);
+  if (type === 'tih:ack-search-badge') return ackSearchBadge();
+  return undefined;
+}
+
+// Copy the pre-v1.2.5 `sync` values into `local`, once (src/syncMigration.ts).
+// On failure the flag stays unset, so the next worker start tries again; the
+// extension runs on defaults meanwhile rather than not at all.
+async function migrateFromSync(): Promise<void> {
+  try {
+    if (await migratedFromSyncItem.getValue()) return;
+    const keys = [...LEGACY_SYNC_KEYS];
+    const [sync, local] = await Promise.all([
+      browser.storage.sync.get(keys),
+      browser.storage.local.get(keys),
+    ]);
+    const writes = planSyncToLocal(sync, local);
+    if (Object.keys(writes).length > 0) await browser.storage.local.set(writes);
+    await migratedFromSyncItem.setValue(true);
+  } catch (err) {
+    console.error('[TIH] copying settings from sync storage failed', err);
+  }
+}
 
 // ─── Saved searches: hand a restore off to the tab that will load the URL ───
 //
@@ -212,13 +275,20 @@ async function reconcileAlarm(): Promise<void> {
   browser.alarms.create(AUTO_CHECK_ALARM, plan);
 }
 
-async function updateBadge(cars: SavedCars): Promise<void> {
-  const count = changedCount(cars);
-  await browser.action.setBadgeText({ text: count > 0 ? String(count) : '' }).catch(() => {});
+// One badge for both features: watchlist changes plus unacknowledged new
+// search matches; see composeBadge for the color and tooltip rules.
+async function updateBadge(): Promise<void> {
+  const [cars, watch] = await Promise.all([savedCarsItem.getValue(), searchWatchItem.getValue()]);
+  const badge = composeBadge(changedCount(cars), unackedTotal(watch));
+  await browser.action.setBadgeText({ text: badge.text }).catch(() => {});
+  await browser.action.setBadgeBackgroundColor({ color: badge.color }).catch(() => {});
+  await browser.action.setBadgeTextColor({ color: badge.textColor }).catch(() => {});
+  await browser.action.setTitle({ title: badge.title }).catch(() => {});
 }
 
-// Open each saved car in a background tab, scrape it, diff vs the snapshot, and
-// persist after every car so progress survives a mid-run worker termination.
+// Check every saved car (one background tab each: scrape, diff vs the snapshot,
+// persist after every car so progress survives a mid-run worker termination),
+// then every saved search with a captured request (one shared hidden tab).
 async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
   runState.running = true;
   runState.done = 0;
@@ -229,7 +299,8 @@ async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
 
   try {
     const cars = await savedCarsItem.getValue();
-    runState.total = cars.length;
+    const searchTargets = await searchCheckTargets();
+    runState.total = cars.length + searchTargets.length;
 
     for (const car of cars) {
       runState.currentVin = car.vin;
@@ -265,14 +336,210 @@ async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
       runState.done++;
     }
 
+    // Watchlist notifications go out before the search phase so they aren't
+    // held up by it. New search matches never notify; the badge carries them.
     if (source === 'alarm') await notifyChanges(changes);
+
+    runState.currentVin = null;
+    await checkSearches(searchTargets, openTabs);
   } finally {
     for (const id of openTabs) await browser.tabs.remove(id).catch(() => {});
     clearInterval(keepAlive);
     runState.running = false;
     runState.currentVin = null;
-    await updateBadge(await savedCarsItem.getValue());
+    await updateBadge();
   }
+}
+
+// ─── Saved searches: new matches ───
+//
+// Tesla's inventory API 403s this worker (Akamai), so every API call runs in a
+// tesla.com page via the content script: the hidden check tab below, or the
+// page the shopper is viewing (baseline). The worker only orchestrates and is
+// the SINGLE WRITER of searchWatchItem.
+
+// Serialize every read-modify-write of searchWatchItem: a check result, a page
+// view and a badge ack can land at the same moment. `fn` returns the same
+// reference when nothing changed, which skips the write.
+let watchChain: Promise<unknown> = Promise.resolve();
+
+function updateSearchWatch<T>(
+  fn: (watch: SearchWatch) => { watch: SearchWatch; result: T },
+): Promise<T> {
+  const run = watchChain.then(async () => {
+    const current = await searchWatchItem.getValue();
+    const { watch, result } = fn(current);
+    if (watch !== current) await searchWatchItem.setValue(watch);
+    return result;
+  });
+  // Keep the chain alive past a failure so one bad write can't wedge the queue.
+  watchChain = run.catch(() => undefined);
+  return run;
+}
+
+function pruneSearchWatch(searches: SavedSearch[]): Promise<void> {
+  return updateSearchWatch((watch) => ({ watch: pruneOrphans(watch, searches), result: undefined })).catch(
+    () => undefined,
+  );
+}
+
+type SearchTarget = { id: string; url: string; request: InventoryRequest };
+
+// Searches with a captured request on this device. A search saved elsewhere and
+// never opened here has none yet, and is skipped until it is.
+async function searchCheckTargets(): Promise<SearchTarget[]> {
+  const [searches, watch] = await Promise.all([
+    savedSearchesItem.getValue(),
+    searchWatchItem.getValue(),
+  ]);
+  return searches.flatMap((s) => {
+    const entry = watch[s.id];
+    return entry ? [{ id: s.id, url: s.url, request: entry.request }] : [];
+  });
+}
+
+async function hasAnythingToCheck(): Promise<boolean> {
+  if ((await savedCarsItem.getValue()).length > 0) return true;
+  return (await searchCheckTargets()).length > 0;
+}
+
+// The hidden tab is only a vehicle for same-origin requests, so load the bare
+// listing path: any tesla.com inventory page runs the content script.
+function checkTabUrl(searchUrl: string): string {
+  try {
+    const u = new URL(searchUrl);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return 'https://www.tesla.com/inventory/used/my';
+  }
+}
+
+async function checkSearches(targets: SearchTarget[], openTabs: Set<number>): Promise<void> {
+  const first = targets[0];
+  if (!first) return;
+  let tabId: number | undefined;
+  try {
+    const tab = await browser.tabs.create({ url: checkTabUrl(first.url), active: false });
+    tabId = tab.id;
+    if (tabId !== undefined) openTabs.add(tabId);
+    for (const target of targets) {
+      const results = tabId === undefined ? null : await fetchSearchInTab(tabId, target.request);
+      // A failed fetch leaves the entry untouched — never a fabricated change.
+      if (results) {
+        await updateSearchWatch((watch) => {
+          const entry = watch[target.id];
+          if (!entry) return { watch, result: undefined }; // deleted mid-run
+          return {
+            watch: { ...watch, [target.id]: withCheckResult(entry, results, Date.now()) },
+            result: undefined,
+          };
+        });
+      }
+      runState.done++;
+    }
+  } catch {
+    // Tab creation failed: every search keeps its previous state.
+  } finally {
+    if (tabId !== undefined) {
+      openTabs.delete(tabId);
+      await browser.tabs.remove(tabId).catch(() => {});
+    }
+  }
+}
+
+type FetchSearchReply =
+  | { ok: true; total: number; vins: string[]; truncated: boolean }
+  | { ok: false };
+
+// Retries only until the tab's content script answers; its answer (success or
+// failure) is final.
+async function fetchSearchInTab(
+  tabId: number,
+  request: InventoryRequest,
+): Promise<(SearchResults & { truncated: boolean }) | null> {
+  const reply = await pollWithTimeout<FetchSearchReply>(
+    async () => {
+      const r = (await browser.tabs
+        .sendMessage(tabId, { type: 'tih:fetch-search', request })
+        .catch(() => null)) as FetchSearchReply | null;
+      return r && typeof r === 'object' && typeof r.ok === 'boolean' ? r : null;
+    },
+    { intervalMs: SCRAPE_INTERVAL_MS, timeoutMs: SEARCH_TAB_READY_MS },
+  );
+  return reply?.ok ? asResults(reply) : null;
+}
+
+// Validate results that crossed a message boundary.
+function asResults(x: unknown): (SearchResults & { truncated: boolean }) | null {
+  const r = x as { total?: unknown; vins?: unknown; truncated?: unknown } | null;
+  if (!r || typeof r.total !== 'number' || !Number.isInteger(r.total) || r.total < 0) return null;
+  if (!Array.isArray(r.vins)) return null;
+  return { total: r.total, vins: normalizeVins(r.vins), truncated: r.truncated === true };
+}
+
+// Only state for a search that exists: an id from a stale page must not
+// resurrect a deleted search's entry.
+async function savedSearchId(id: unknown): Promise<string | null> {
+  if (typeof id !== 'string') return null;
+  return (await savedSearchesItem.getValue()).some((s) => s.id === id) ? id : null;
+}
+
+// The shopper has a saved search on screen: store Tesla's latest request for it
+// and mark what's new or rendered as seen. Tells the page whether it still has
+// to take the baseline.
+async function onSearchViewed(msg: unknown): Promise<{ needsBaseline: boolean }> {
+  const { id: rawId, request: raw, renderedVins } = msg as {
+    id?: unknown;
+    request?: unknown;
+    renderedVins?: unknown;
+  };
+  const request = asInventoryRequest(raw);
+  const id = request ? await savedSearchId(rawId) : null;
+  if (!request || !id) return { needsBaseline: false };
+  const rendered = normalizeVins(renderedVins);
+  return updateSearchWatch((watch) => {
+    const now = Date.now();
+    const entry = withViewed(withRequest(watch[id], request, now), rendered, now);
+    const next = entry === watch[id] ? watch : { ...watch, [id]: entry };
+    return { watch: next, result: { needsBaseline: entry.seen === null } };
+  });
+}
+
+// The page fetched everything the search matches. With no baseline yet this is
+// the baseline; otherwise the shopper is looking at it, so it all counts as seen.
+async function onSearchBaseline(msg: unknown): Promise<{ ok: boolean }> {
+  const { id: rawId, request: raw, results: rawResults } = msg as {
+    id?: unknown;
+    request?: unknown;
+    results?: unknown;
+  };
+  const request = asInventoryRequest(raw);
+  const results = asResults(rawResults);
+  const id = request && results ? await savedSearchId(rawId) : null;
+  if (!request || !results || !id) return { ok: false };
+  await updateSearchWatch((watch) => {
+    const now = Date.now();
+    const withReq = withRequest(watch[id], request, now);
+    const entry =
+      withReq.seen === null ? withBaseline(withReq, results, now) : withViewed(withReq, results.vins, now);
+    return { watch: entry === watch[id] ? watch : { ...watch, [id]: entry }, result: undefined };
+  });
+  return { ok: true };
+}
+
+// Opening the popup clears the badge for current news; row chips stay until
+// each search is opened.
+async function ackSearchBadge(): Promise<void> {
+  await updateSearchWatch((watch) => {
+    let changed = false;
+    const next: SearchWatch = {};
+    for (const [id, entry] of Object.entries(watch)) {
+      const acked = withBadgeAcked(entry);
+      if (acked !== entry) changed = true;
+      next[id] = acked;
+    }
+    return { watch: changed ? next : watch, result: undefined };
+  });
 }
 
 // Best-effort OS notification summarizing an alarm run's changes. A failure here

@@ -1,6 +1,7 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { decodeTeslaVin, findTeslaVins, type TeslaVinInfo } from '../../src/decoder';
 import { highlightingEnabledItem } from '../../src/storage';
+import { whenStorageReady } from '../../src/storageReady';
 import { mountBadge, unmountBadge, updateBadge } from './badge';
 
 const ALLOWLIST_MATCHES = [
@@ -38,6 +39,7 @@ export default defineContentScript({
     let scanScheduled = false;
     let scanTimer: ReturnType<typeof setTimeout> | null = null;
     let lastHref = location.href;
+    await whenStorageReady();
     let enabled = await highlightingEnabledItem.getValue();
 
     const collectScanText = (): string => {

@@ -38,9 +38,8 @@ export type CapturedView = {
 
 export type SavedRange = { min: number; max: number };
 
-// The stored record. Deliberately slim (see MAX_SAVED_SEARCHES): the description
-// is computed once at save time rather than storing per-group labels, and only
-// ranges the user actually moved are kept.
+// The stored record. The description is computed once at save time rather than
+// storing per-group labels, and only ranges the user actually moved are kept.
 export type SavedSearch = {
   id: string;
   name: string; // optional custom label; '' when the user hasn't set one
@@ -53,14 +52,10 @@ export type SavedSearch = {
 
 export type SavedSearches = SavedSearch[];
 
-// The list lives in chrome.storage.sync, which caps a single item at 8,192
-// bytes (key + JSON value). A record is ~450–650 bytes typically (URL, name,
-// description) and ~1 KB with many filters, so 12 fits comfortably in the
-// common case and the byte budget below catches the heavy-URL case before
-// setValue would fail. 12 is also plenty for real shopping (a few model /
-// payment variants).
+// Plenty for real shopping (a few model / payment variants), and it bounds the
+// work every check run does: each search costs up to a few requests to Tesla's
+// inventory API (see src/searchWatch.ts).
 export const MAX_SAVED_SEARCHES = 12;
-export const SYNC_ITEM_BUDGET_BYTES = 7000;
 export const MAX_NAME_LENGTH = 60;
 export const MAX_DESCRIPTION_LENGTH = 200;
 
@@ -388,23 +383,17 @@ export function findDuplicate(searches: SavedSearches, candidate: SavedSearch): 
   return searches.find((s) => s.url === candidate.url && rangesEqual(s.ranges, candidate.ranges));
 }
 
-export function byteSize(searches: SavedSearches): number {
-  return new TextEncoder().encode(JSON.stringify(searches)).length;
-}
-
 export type AddSearchResult =
   | { ok: true; searches: SavedSearches }
   | { ok: false; reason: 'duplicate'; existingId: string }
-  | { ok: false; reason: 'full' | 'quota' };
+  | { ok: false; reason: 'full' };
 
 // Newest first, so the panel shows what was just saved at the top.
 export function addSearch(searches: SavedSearches, search: SavedSearch): AddSearchResult {
   const dup = findDuplicate(searches, search);
   if (dup) return { ok: false, reason: 'duplicate', existingId: dup.id };
   if (searches.length >= MAX_SAVED_SEARCHES) return { ok: false, reason: 'full' };
-  const next = [search, ...searches];
-  if (byteSize(next) > SYNC_ITEM_BUDGET_BYTES) return { ok: false, reason: 'quota' };
-  return { ok: true, searches: next };
+  return { ok: true, searches: [search, ...searches] };
 }
 
 export function removeSearch(searches: SavedSearches, id: string): SavedSearches {

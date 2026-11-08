@@ -26,6 +26,8 @@
   --status-ok: #157f3c;
   --status-error: #c1272d;
   --name-hover: #e82127;
+  --new-bg: #ffbf00;
+  --new-fg: #171a20;
   --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
 }
 
@@ -48,6 +50,8 @@
     --status-ok: #7ad38a;
     --status-error: #ff7b7b;
     --name-hover: #ff6b70;
+    --new-bg: #ffbf00;
+    --new-fg: #171a20;
     --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   }
 }
@@ -126,6 +130,24 @@
 }
 
 .pill-count[hidden] {
+  display: none;
+}
+
+/* New matches across all saved searches: amber, the extension's "match" color.
+   Fixed colors like the rest of the pill, which is always light. */
+.pill-new {
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ffbf00;
+  color: #171a20;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+}
+
+.pill-new[hidden] {
   display: none;
 }
 
@@ -281,6 +303,19 @@
   line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+}
+
+/* Cars matching this search that the shopper hasn't seen on this device. */
+.new-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--new-bg);
+  color: var(--new-fg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .row-main {
