@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  carKeyFromDataId,
   extractVinFromOrderPath,
   isSoldRedirect,
   isUsedInventoryPath,
@@ -7,6 +8,24 @@ import {
 } from '../src/vin';
 
 const VIN = '7SAYGDEE1PF814618';
+
+describe('carKeyFromDataId', () => {
+  it('reads a VIN or a lowercase listing hash from the card prefix', () => {
+    const hash = '230_2df0b2b503fecb0921d4a5dc9f254b50';
+    expect(carKeyFromDataId(`${VIN.toLowerCase()}-search-result-container`)).toBe(VIN);
+    expect(carKeyFromDataId(`${hash}-search-result-container`)).toBe(hash);
+    expect(carKeyFromDataId(`${hash}-other-suffix`)).toBe(hash);
+    expect(carKeyFromDataId(VIN)).toBe(VIN);
+    expect(carKeyFromDataId(hash.toUpperCase())).toBeNull();
+  });
+
+  it('rejects malformed prefixes instead of truncating them', () => {
+    for (const id of [null, undefined, '', 'SHORT', `${VIN}EXTRA`,
+      'IOQ00000000000000', '230_abc-search-result-container',
+      '7SAY230_2df0b2b503fecb0921d4a5dc9f254b50-search-result-container',
+    ]) expect(carKeyFromDataId(id)).toBeNull();
+  });
+});
 
 describe('isSoldRedirect', () => {
   it('is false while still on the car\'s own US order page', () => {

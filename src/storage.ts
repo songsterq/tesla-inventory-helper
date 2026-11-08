@@ -4,7 +4,7 @@ import type { SavedCars } from './savedCars';
 import type { SavedSearch, SavedSearches } from './savedSearches';
 import type { SearchWatch } from './searchWatch';
 import { defaultRules, RULES_MIGRATIONS, RULES_STORAGE_VERSION } from './defaultRules';
-import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck';
+import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES, DEFAULT_SEARCH_ALERT_MINUTES } from './autoCheck';
 
 // Everything persistent lives in `local`: one place, per device. Until v1.2.5
 // the rules, the highlight toggle, the auto-check schedule and saved searches
@@ -40,6 +40,10 @@ export const autoCheckMinutesItem = storage.defineItem<number>('local:autoCheckM
   fallback: DEFAULT_AUTO_CHECK_MINUTES,
 });
 
+export const searchAlertMinutesItem = storage.defineItem<number>('local:searchAlertMinutes', {
+  fallback: DEFAULT_SEARCH_ALERT_MINUTES,
+});
+
 // Local-time hour (0–23) the automatic checks anchor to — the "9AM" in the
 // popup's time dropdown. The background worker feeds it to planAlarm to
 // phase-align the chrome.alarms schedule; see src/autoCheck.ts.
@@ -57,7 +61,7 @@ export const savedSearchesItem = storage.defineItem<SavedSearches>('local:savedS
   fallback: [],
 });
 
-// Per-search "new matches" state (captured Tesla request, seen VINs, new VINs),
+// Per-search "new matches" state (captured Tesla request, known car keys, new keys),
 // keyed by saved-search id; see src/searchWatch.ts.
 // SINGLE WRITER: only the background worker writes this item (serialized, see
 // updateSearchWatch). The content script and popup read it and send messages.

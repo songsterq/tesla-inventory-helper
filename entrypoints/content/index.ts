@@ -10,6 +10,7 @@ import {
 import { whenStorageReady } from '../../src/storageReady';
 import { evalRules, type Rules } from '../../src/rules';
 import {
+  carKeyFromDataId,
   extractVin,
   extractVinFromOrderPath,
   isUsedInventoryPath,
@@ -34,6 +35,7 @@ import {
   clampRange,
   conditionFromPath,
   createSavedSearch,
+  distanceUnitFromPath,
   groupsFromUrl,
   isCurrentSearch,
   isInventoryListingPath,
@@ -44,6 +46,7 @@ import {
   rangeWriteSettled,
   removeSearch,
   renameSearch,
+  setSearchAlerts,
   restoreRangeTarget,
   searchLabelShort,
   userSetRanges,
@@ -63,6 +66,7 @@ import {
   parseInventoryRequestUrl,
   requestsEqual,
   requestSlidersMatch,
+  validSearchWatch,
   type InventoryRequest,
   type SearchResults,
   type SearchWatch,
@@ -309,9 +313,8 @@ function captureView(): CapturedView | null {
   // Tesla shows no unit next to the odometer boxes; fall back to the locale
   // prefix (everything outside the US/UK paths reads in km).
   const odometerText = rangeTextInput('Odometer', 'Min')?.closest('div.filter')?.textContent ?? '';
-  const locale = /^\/([a-z]{2}_[A-Z]{2})\//.exec(location.pathname)?.[1] ?? 'en_US';
   const distanceUnit: 'mi' | 'km' =
-    /\bkm\b/i.test(odometerText) || !['en_US', 'en_GB'].includes(locale) ? 'km' : 'mi';
+    /\bkm\b/i.test(odometerText) ? 'km' : distanceUnitFromPath(location.pathname);
   const rangeParam = params.get('range');
   const radius = rangeParam !== null && rangeParam !== '' ? Number(rangeParam) : NaN;
   const domGroups = captureGroups(sidebar);
@@ -429,10 +432,14 @@ async function applyRanges(ranges: SavedSearch['ranges']): Promise<ApplyResult> 
 
 const SEARCH_FETCH_TIMEOUT_MS = 15_000;
 const SEARCH_PAGE_PAUSE_MS = 300;
+// A reused tab can show a different search. Our fetches must never replace
+// Tesla's request for that page; also covers baseline fetches on visible pages.
+const ownSearchUrls = new Set<string>();
+const OWN_SEARCH_URL_LIMIT = 50;
 // After the request a view starts from, how long until its cards count as
-// rendered (tags appear, the first "seen" report goes out).
+// rendered (tags appear, the first view report goes out).
 const VIEW_SETTLE_MS = 1000;
-// Coalesces "seen" reports while infinite scroll renders more cards.
+// Coalesces view reports while infinite scroll renders more cards.
 const VIEW_REPORT_DEBOUNCE_MS = 1000;
 
 // The live slider values (not just user-set ones), for matching a captured
@@ -450,7 +457,13 @@ async function fetchInventoryJson(path: string): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEARCH_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(new URL(path, location.origin).href, {
+    const url = new URL(path, location.origin).href;
+    ownSearchUrls.delete(url);
+    ownSearchUrls.add(url);
+    if (ownSearchUrls.size > OWN_SEARCH_URL_LIMIT) {
+      ownSearchUrls.delete(ownSearchUrls.values().next().value!);
+    }
+    const res = await fetch(url, {
       cache: 'no-store',
       signal: controller.signal,
     });
@@ -489,7 +502,7 @@ export default defineContentScript({
     let searches: SavedSearches = await savedSearchesItem.getValue();
     let cars: SavedCars = await savedCarsItem.getValue();
     updateTrackButtons(cars);
-    let searchWatch: SearchWatch = await searchWatchItem.getValue();
+    let searchWatch: SearchWatch = validSearchWatch(await searchWatchItem.getValue());
     setSearchNewCounts(newCountsById(searchWatch));
     let scheduled = false;
 
@@ -662,7 +675,7 @@ export default defineContentScript({
     };
 
     // Sliders restore one at a time, so the page can pass through states that
-    // match some other saved search. Viewing (which marks cars seen) is paused
+    // match some other saved search. Viewing (which marks cars viewed) is paused
     // until the restore is done.
     let restoring = false;
     const restoreRanges = async (ranges: SavedSearch['ranges']): Promise<ApplyResult> => {
@@ -722,6 +735,11 @@ export default defineContentScript({
         const next = renameSearch(current, id, name);
         if (next !== current) await savedSearchesItem.setValue(next);
       },
+      onAlerts: async (id, on) => {
+        const current = await savedSearchesItem.getValue();
+        const next = setSearchAlerts(current, id, on);
+        if (next !== current) await savedSearchesItem.setValue(next);
+      },
       onDelete: async (id) => {
         await savedSearchesItem.setValue(removeSearch(await savedSearchesItem.getValue(), id));
       },
@@ -744,8 +762,8 @@ export default defineContentScript({
     //
     // While the page IS a saved search (URL and sliders match) and the tab is
     // visible, this page "views" it: Tesla's latest request is stored as that
-    // search's query, everything new or rendered is marked seen, and cards the
-    // shopper hadn't seen before get a "New" tag. A hidden tab — including the
+    // search's query, everything new or rendered is marked viewed, and cards the
+    // shopper hadn't viewed before get a "New" tag. A hidden tab — including the
     // worker's check tab — never views anything. The worker owns every write;
     // this side only reports.
 
@@ -756,9 +774,9 @@ export default defineContentScript({
     type SearchView = {
       id: string;
       request: InventoryRequest;
-      // The search's seen VINs when the view began; cards outside it are "New"
-      // for the rest of this page session. null = no baseline yet, no tags.
-      seenAtStart: Set<string> | null;
+      // Known keys excluding unviewed arrivals when the view began. Cards
+      // outside this snapshot stay "New" for this page session. null = no baseline.
+      knownAtStart: Set<string> | null;
       settled: boolean; // results for this request have had time to render
       reported: Set<string>;
       reportedOnce: boolean;
@@ -767,9 +785,9 @@ export default defineContentScript({
     let view: SearchView | null = null;
     let reportTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const renderedCardVins = (): string[] =>
+    const renderedCardKeys = (): string[] =>
       inventoryCards()
-        .map((article) => extractVin(article.getAttribute('data-id')))
+        .map((article) => carKeyFromDataId(article.getAttribute('data-id')))
         .filter((v): v is string => !!v);
 
     const clearNewTags = () => {
@@ -777,14 +795,14 @@ export default defineContentScript({
     };
 
     const applyNewTags = () => {
-      const seen = view?.settled ? view.seenAtStart : null;
-      if (!seen) {
+      const known = view?.settled ? view.knownAtStart : null;
+      if (!known) {
         clearNewTags();
         return;
       }
       for (const article of inventoryCards()) {
-        const vin = extractVin(article.getAttribute('data-id'));
-        article.classList.toggle('tih-new', !!vin && !seen.has(vin));
+        const key = carKeyFromDataId(article.getAttribute('data-id'));
+        article.classList.toggle('tih-new', !!key && !known.has(key));
       }
     };
 
@@ -799,12 +817,12 @@ export default defineContentScript({
     // carries the request even with no cards); later ones only for new cards.
     const reportView = async (v: SearchView) => {
       if (view !== v) return;
-      const fresh = renderedCardVins().filter((vin) => !v.reported.has(vin));
+      const fresh = renderedCardKeys().filter((key) => !v.reported.has(key));
       if (v.reportedOnce && fresh.length === 0) return;
       v.reportedOnce = true;
-      fresh.forEach((vin) => v.reported.add(vin));
+      fresh.forEach((key) => v.reported.add(key));
       const res = (await browser.runtime
-        .sendMessage({ type: 'tih:search-viewed', id: v.id, request: v.request, renderedVins: fresh })
+        .sendMessage({ type: 'tih:search-viewed', id: v.id, request: v.request, renderedKeys: fresh })
         .catch(() => null)) as { needsBaseline?: boolean } | null;
       if (!res?.needsBaseline || v.baselining || view !== v) return;
       // First view on this device: everything matching right now is the baseline.
@@ -828,11 +846,16 @@ export default defineContentScript({
 
     const startView = (id: string, request: InventoryRequest) => {
       endView();
-      const seen = searchWatch[id]?.seen;
+      const entry = searchWatch[id];
+      const known = entry?.known;
+      const knownAtStart = known ? new Set(Object.keys(known)) : null;
+      // Checks now remember arrivals immediately. They still need a tag until
+      // viewed, and this snapshot must survive the worker clearing newKeys.
+      for (const key of entry?.newKeys ?? []) knownAtStart?.delete(key);
       const v: SearchView = {
         id,
         request,
-        seenAtStart: seen ? new Set(Object.keys(seen)) : null,
+        knownAtStart,
         settled: false,
         reported: new Set(),
         reportedOnce: false,
@@ -841,7 +864,7 @@ export default defineContentScript({
       view = v;
       if (DEBUG) console.debug('[TIH] search view', { id, request });
       // Give the results of this request time to replace the previous cards, so
-      // neither the tags nor the "seen" report pick up the old ones.
+      // neither the tags nor the view report pick up the old ones.
       setTimeout(() => {
         if (view !== v) return;
         v.settled = true;
@@ -881,11 +904,12 @@ export default defineContentScript({
       scheduleViewReport();
     };
 
-    // Tesla's own requests, seen through resource timing. An observer (unlike
+    // Tesla's own requests, observed through resource timing. An observer (unlike
     // getEntriesByType) keeps receiving entries after the 250-entry timeline
     // buffer fills, which a long SPA session can reach.
     const requestObserver = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
+        if (ownSearchUrls.has(entry.name)) continue;
         const request = parseInventoryRequestUrl(entry.name);
         if (!request) continue;
         if (lastRequest && entry.startTime < lastRequest.startTime) continue;
@@ -977,7 +1001,7 @@ export default defineContentScript({
     // New-match counts for the pill and rows, kept live as checks and views
     // land. A view in progress keeps its own start-of-view snapshot.
     searchWatchItem.watch((next) => {
-      searchWatch = next;
+      searchWatch = validSearchWatch(next);
       setSearchNewCounts(newCountsById(next));
     });
 
@@ -990,10 +1014,11 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((msg) => {
       const type = (msg as { type?: string } | null)?.type;
+      if (type === 'tih:search-ready') return Promise.resolve(true);
       if (type === 'tih:scrape') {
         return Promise.resolve(scrapeCar());
       }
-      // The worker's check tab: page through one saved search's results.
+      // The worker's created or reused tab: page through one search's results.
       if (type === 'tih:fetch-search') {
         const request = asInventoryRequest((msg as { request?: unknown }).request);
         if (!request) return Promise.resolve({ ok: false });

@@ -4,6 +4,9 @@ import {
   DEFAULT_AUTO_CHECK_HOUR,
   DEFAULT_AUTO_CHECK_MINUTES,
   planAlarm,
+  planSearchAlertAlarm,
+  SEARCH_ALERT_OPTIONS,
+  DEFAULT_SEARCH_ALERT_MINUTES,
 } from '../src/autoCheck';
 
 const NINE_AM = 9; // anchor hour used across the scheduling cases
@@ -102,5 +105,37 @@ describe('planAlarm', () => {
     expect(planAlarm(1440, 99, 0)).toEqual({ periodInMinutes: 1440, delayInMinutes: 1440 });
     expect(planAlarm(1440, -3, 0)).toEqual({ periodInMinutes: 1440, delayInMinutes: 1440 });
     expect(planAlarm(1440, NaN, 0)).toEqual({ periodInMinutes: 1440, delayInMinutes: 1440 });
+  });
+});
+
+describe('planSearchAlertAlarm', () => {
+  it('offers 15/30/60 minutes and defaults to 30', () => {
+    expect(SEARCH_ALERT_OPTIONS).toEqual([15, 30, 60]);
+    expect(DEFAULT_SEARCH_ALERT_MINUTES).toBe(30);
+  });
+
+  it('clears without alerted searches, regardless of the setting', () => {
+    for (const minutes of [15, 30, 60, 0, NaN, Infinity]) {
+      expect(planSearchAlertAlarm(minutes, false)).toEqual({ clear: true });
+    }
+  });
+
+  it.each([
+    [15, 15], [30, 30], [60, 60], [-10, 15], [0, 15], [1000, 60],
+    [22, 15], [23, 30], [44, 30], [46, 60], [22.5, 15], [45, 30],
+    [NaN, 30], [Infinity, 30], [-Infinity, 30],
+    [Number.MAX_VALUE, 60], [-Number.MAX_VALUE, 15],
+  ])('maps %s to %s and waits a full period', (minutes, period) => {
+    expect(planSearchAlertAlarm(minutes, true)).toEqual({
+      periodInMinutes: period, delayInMinutes: period,
+    });
+  });
+
+  it('defaults corrupt non-number storage rather than coercing it', () => {
+    for (const minutes of ['15', null, undefined, {}]) {
+      expect(planSearchAlertAlarm(minutes as number, true)).toEqual({
+        periodInMinutes: 30, delayInMinutes: 30,
+      });
+    }
   });
 });

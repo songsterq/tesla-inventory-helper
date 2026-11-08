@@ -19,6 +19,20 @@ const MINUTES_PER_DAY = 1440;
 // What the worker should do with the alarm for a given stored setting.
 export type AlarmPlan = { clear: true } | { periodInMinutes: number; delayInMinutes: number };
 
+export const SEARCH_ALERT_OPTIONS = [15, 30, 60] as const;
+export const DEFAULT_SEARCH_ALERT_MINUTES = 30;
+
+export function planSearchAlertAlarm(minutes: number, anyAlerts: boolean): AlarmPlan {
+  if (!anyAlerts) return { clear: true };
+  const desired = Number.isFinite(minutes) ? minutes : DEFAULT_SEARCH_ALERT_MINUTES;
+  // Options are ascending. Midpoints avoid precision loss when a corrupt finite
+  // value is enormous; exact ties keep the lower option.
+  const period = SEARCH_ALERT_OPTIONS.reduce((nearest, option) =>
+    desired > (nearest + option) / 2 ? option : nearest,
+  );
+  return { periodInMinutes: period, delayInMinutes: period };
+}
+
 // Coerce a stored anchor hour into a valid 0..23, defaulting corrupted values to
 // midnight so the delay math can never blow up.
 function anchorMinuteOfDay(anchorHour: number): number {

@@ -48,6 +48,7 @@ export type SavedSearch = {
   condition: SearchCondition;
   ranges: Partial<Record<RangeKey, SavedRange>>;
   createdAt: number;
+  alerts?: boolean; // absent means off
 };
 
 export type SavedSearches = SavedSearch[];
@@ -72,6 +73,24 @@ export function conditionFromPath(pathname: string): SearchCondition | null {
   const m = pathname.match(LISTING_RE);
   if (!m) return null;
   return m[2]?.toLowerCase() === 'new' ? 'new' : 'used';
+}
+
+// Tesla's odometer boxes omit units; the existing capture fallback uses the
+// locale prefix. Share it with alerts so a Canadian search still reads in km.
+export function distanceUnitFromPath(pathname: string): 'mi' | 'km' {
+  const locale = /^\/([a-z]{2}_[A-Z]{2})\//.exec(pathname)?.[1] ?? 'en_US';
+  return ['en_US', 'en_GB'].includes(locale) ? 'mi' : 'km';
+}
+
+export function orderUrl(search: SavedSearch, orderId: string): string | null {
+  try {
+    const url = new URL(search.url);
+    const match = /^(.*?)\/inventory\/(?:used|new)\/([^/]+)(?:\/|$)/i.exec(url.pathname);
+    if (!match) return null;
+    return `${url.origin}${match[1]}/${match[2]}/order/${encodeURIComponent(orderId)}?titleStatus=${search.condition}&redirect=no`;
+  } catch {
+    return null;
+  }
 }
 
 // Canonical form of a listing URL: hash dropped, empty params dropped, params
@@ -398,6 +417,15 @@ export function addSearch(searches: SavedSearches, search: SavedSearch): AddSear
 
 export function removeSearch(searches: SavedSearches, id: string): SavedSearches {
   return searches.filter((s) => s.id !== id);
+}
+
+export function setSearchAlerts(searches: SavedSearches, id: string, on: boolean): SavedSearches {
+  if (!searches.some((s) => s.id === id && (s.alerts === true) !== on)) return searches;
+  return searches.map((s) => (s.id === id ? { ...s, alerts: on } : s));
+}
+
+export function anySearchAlerts(searches: SavedSearches): boolean {
+  return searches.some((s) => s.alerts === true);
 }
 
 // Set or clear the custom name: whitespace is trimmed, the length capped, and

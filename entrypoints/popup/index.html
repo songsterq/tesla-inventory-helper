@@ -61,6 +61,12 @@
       <section class="searches" aria-labelledby="searches-title">
         <div class="monitor-head">
           <h2 id="searches-title">Saved searches</h2>
+          <label class="sr-only" for="alert-check">Saved-search alert frequency</label>
+          <select id="alert-check" class="auto-check" title="Saved-search alert frequency" hidden>
+            <option value="15">Alerts every 15 min</option>
+            <option value="30">Alerts every 30 min</option>
+            <option value="60">Alerts every hour</option>
+          </select>
         </div>
         <ul id="saved-searches" class="saved-searches"></ul>
       </section>

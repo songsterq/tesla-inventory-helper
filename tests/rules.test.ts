@@ -4,6 +4,9 @@ import { defaultRules } from '../src/defaultRules';
 import { extractVin, extractVinFromOrderPath } from '../src/vin';
 
 describe('extractVin', () => {
+  it('rejects a listing hash prefix', () => {
+    expect(extractVin('230_2df0b2b503fecb0921d4a5dc9f254b50-search-result-container')).toBeNull();
+  });
   it('returns the leading VIN segment from a data-id', () => {
     expect(extractVin('7SAYGDEE5PF633523-search-result-container')).toBe('7SAYGDEE5PF633523');
   });

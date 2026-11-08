@@ -26,6 +26,7 @@
   --status-ok: #157f3c;
   --status-error: #c1272d;
   --name-hover: #e82127;
+  --bell-on: #e82127;
   --new-bg: #ffbf00;
   --new-fg: #171a20;
   --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
@@ -50,6 +51,7 @@
     --status-ok: #7ad38a;
     --status-error: #ff7b7b;
     --name-hover: #ff6b70;
+    --bell-on: #ff6b70;
     --new-bg: #ffbf00;
     --new-fg: #171a20;
     --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
@@ -414,4 +416,21 @@
   text-align: center;
   letter-spacing: 0.3px;
   text-transform: uppercase;
+}
+
+.search-alert svg {
+  fill: none;
+}
+
+.search-alert[aria-pressed='true'] svg {
+  fill: currentColor;
+}
+
+.search-alert[aria-pressed='true'] {
+  color: var(--bell-on);
+}
+
+.search-alert:focus-visible {
+  outline: 2px solid var(--bell-on);
+  outline-offset: 2px;
 }

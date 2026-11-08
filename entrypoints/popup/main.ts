@@ -7,6 +7,7 @@ import {
   savedCarsItem,
   savedSearchesItem,
   searchWatchItem,
+  searchAlertMinutesItem,
 } from '../../src/storage';
 import { newCountsById } from '../../src/searchWatch';
 import { whenStorageReady } from '../../src/storageReady';
@@ -31,7 +32,15 @@ import {
   formatPrice,
   formatPriceStatus,
 } from '../../src/format';
-import { removeSearch, searchLabel, type SavedSearch, type SavedSearches } from '../../src/savedSearches';
+import {
+  anySearchAlerts,
+  removeSearch,
+  searchLabel,
+  setSearchAlerts,
+  type SavedSearch,
+  type SavedSearches,
+} from '../../src/savedSearches';
+import { BELL_SVG } from '../../src/bellIcon';
 
 const textarea = document.getElementById('rules') as HTMLTextAreaElement;
 const highlightingEnabledInput = document.getElementById(
@@ -46,6 +55,7 @@ const testResult = document.getElementById('test-result') as HTMLParagraphElemen
 const checkNowBtn = document.getElementById('check-now') as HTMLButtonElement;
 const autoCheckSelect = document.getElementById('auto-check') as HTMLSelectElement;
 const autoCheckTimeSelect = document.getElementById('auto-check-time') as HTMLSelectElement;
+const alertCheckSelect = document.getElementById('alert-check') as HTMLSelectElement;
 const checkProgress = document.getElementById('check-progress') as HTMLParagraphElement;
 const savedCarsList = document.getElementById('saved-cars') as HTMLUListElement;
 const savedSearchesList = document.getElementById('saved-searches') as HTMLUListElement;
@@ -70,6 +80,13 @@ async function init() {
   syncTimeVisibility();
   autoCheckSelect.addEventListener('change', onAutoCheckChange);
   autoCheckTimeSelect.addEventListener('change', onAutoCheckTimeChange);
+  alertCheckSelect.value = String(await searchAlertMinutesItem.getValue());
+  alertCheckSelect.addEventListener('change', async () => {
+    await searchAlertMinutesItem.setValue(Number(alertCheckSelect.value));
+  });
+  searchAlertMinutesItem.watch((next) => {
+    alertCheckSelect.value = String(next);
+  });
   runTest();
 
   // Watchlist: render, keep it live, and acknowledge changes so the badge clears.
@@ -429,6 +446,7 @@ let searchNewCounts: Record<string, number> = {};
 
 function renderSavedSearches() {
   const searches = savedSearches;
+  alertCheckSelect.hidden = !anySearchAlerts(searches);
   savedSearchesList.replaceChildren();
   if (searches.length === 0) {
     const li = document.createElement('li');
@@ -478,6 +496,26 @@ function renderSearchRow(search: SavedSearch): HTMLLIElement {
     info.append(sub);
   }
 
+  const bell = document.createElement('button');
+  bell.className = 'saved-search-alert';
+  bell.type = 'button';
+  bell.setAttribute('aria-pressed', String(search.alerts === true));
+  bell.title = search.alerts === true ? 'Alerts on — click to turn off' : 'Alert me about new matches';
+  bell.setAttribute('aria-label', `${bell.title}: ${searchLabel(search)}`);
+  bell.innerHTML = BELL_SVG;
+  bell.addEventListener('click', async () => {
+    const searches = await savedSearchesItem.getValue();
+    const current = searches.find((s) => s.id === search.id);
+    if (!current) return;
+    const on = current.alerts !== true;
+    await savedSearchesItem.setValue(setSearchAlerts(searches, search.id, on));
+    if (on) {
+      const minutes = await searchAlertMinutesItem.getValue();
+      const cadence = minutes === 60 ? 'hour' : `${minutes} min`;
+      flashStatus(`You'll get a notification when a new car matches — checked every ${cadence} while Chrome is open.`);
+    }
+  });
+
   const remove = document.createElement('button');
   remove.className = 'saved-car-remove';
   remove.type = 'button';
@@ -503,7 +541,7 @@ function renderSearchRow(search: SavedSearch): HTMLLIElement {
         : `${fresh} cars matched since you last opened this search`;
     row.append(chip);
   }
-  row.append(remove);
+  row.append(bell, remove);
   li.append(row);
   return li;
 }

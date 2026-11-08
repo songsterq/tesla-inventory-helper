@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   addSearch,
+  anySearchAlerts,
+  setSearchAlerts,
+  orderUrl,
+  distanceUnitFromPath,
   clampRange,
   compactAmount,
   conditionFromPath,
@@ -406,5 +410,76 @@ describe('restore helpers', () => {
     expect(rangeWriteSettled({ min: 5000, max: 30000 }, { min: 5000, max: 30000 }, bounds)).toBe(true);
     expect(rangeWriteSettled({ min: 5000, max: 120000 }, { min: 5000, max: 98000 }, bounds)).toBe(true);
     expect(rangeWriteSettled({ min: 5000, max: 30000 }, { min: 2000, max: 30000 }, bounds)).toBe(false);
+  });
+});
+
+describe('saved-search alerts', () => {
+  it('defaults off and changes only the selected search without mutating input', () => {
+    const searches = [search('a'), search('b')];
+    expect(anySearchAlerts(searches)).toBe(false);
+    expect(anySearchAlerts([])).toBe(false);
+    const enabled = setSearchAlerts(searches, 'a', true);
+    expect(enabled).not.toBe(searches);
+    expect(enabled[0]).toEqual({ ...searches[0], alerts: true });
+    expect(enabled[1]).toBe(searches[1]);
+    expect(searches[0]?.alerts).toBeUndefined();
+    expect(anySearchAlerts(enabled)).toBe(true);
+    const disabled = setSearchAlerts(enabled, 'a', false);
+    expect(disabled[0]?.alerts).toBe(false);
+    expect(anySearchAlerts(disabled)).toBe(false);
+  });
+
+  it('preserves the array reference for missing ids and unchanged flags', () => {
+    const searches = [search('a'), search('b', { alerts: false }), search('c', { alerts: true })];
+    expect(setSearchAlerts(searches, 'missing', true)).toBe(searches);
+    expect(setSearchAlerts(searches, 'a', false)).toBe(searches);
+    expect(setSearchAlerts(searches, 'b', false)).toBe(searches);
+    expect(setSearchAlerts(searches, 'c', true)).toBe(searches);
+  });
+});
+
+describe('orderUrl', () => {
+  const masked = '7SAY230_2df0b2b503fecb0921d4a5dc9f254b50';
+
+  it('builds a US new order URL and keeps a masked order ID intact', () => {
+    const s = search('a', { url: 'https://www.tesla.com/inventory/new/my?zip=98052', condition: 'new' });
+    expect(orderUrl(s, masked)).toBe(`https://www.tesla.com/my/order/${masked}?titleStatus=new&redirect=no`);
+  });
+
+  it('builds a US used order URL', () => {
+    expect(orderUrl(search('a'), '7SAYGDEE5PF789500')).toBe(
+      'https://www.tesla.com/my/order/7SAYGDEE5PF789500?titleStatus=used&redirect=no',
+    );
+  });
+
+  it('preserves locale, model and origin and drops listing params and hash', () => {
+    const s = search('a', { url: 'https://www.tesla.com/en_CA/inventory/new/m3?range=200#old', condition: 'new' });
+    expect(orderUrl(s, masked)).toBe(`https://www.tesla.com/en_CA/m3/order/${masked}?titleStatus=new&redirect=no`);
+    expect(orderUrl({ ...s, url: s.url.replace('www.tesla.com', 'tesla.example') }, masked)).toBe(
+      `https://tesla.example/en_CA/m3/order/${masked}?titleStatus=new&redirect=no`,
+    );
+  });
+
+  it('encodes order IDs as a single path segment', () => {
+    expect(orderUrl(search('a'), 'a/b?c#d e')).toBe(
+      'https://www.tesla.com/my/order/a%2Fb%3Fc%23d%20e?titleStatus=used&redirect=no',
+    );
+  });
+
+  it.each(['not a URL', 'https://[', 'https://www.tesla.com/inventory/new',
+    'https://www.tesla.com/en_CA/inventory/used/', 'https://www.tesla.com/my/order/abc',
+    'https://www.tesla.com/inventory/new//'])('returns null for an invalid listing: %s', (url) => {
+    expect(orderUrl(search('a', { url }), masked)).toBeNull();
+  });
+});
+
+describe('distanceUnitFromPath', () => {
+  it('shares the existing US/UK miles and other locale kilometers convention', () => {
+    for (const path of ['/inventory/used/my', '/en_US/inventory/new/my', '/en_GB/inventory/used/my']) {
+      expect(distanceUnitFromPath(path)).toBe('mi');
+    }
+    for (const locale of ['en_CA', 'fr_CA', 'de_DE', 'en_AU']) {
+      expect(distanceUnitFromPath(`/${locale}/inventory/used/my`)).toBe('km');
+    }
   });
 });

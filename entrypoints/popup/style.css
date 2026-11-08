@@ -623,3 +623,34 @@ button.link:hover {
   font-size: 13px;
   line-height: 1;
 }
+
+.saved-search-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 2px 4px;
+  line-height: 0;
+}
+
+.saved-search-alert svg {
+  fill: none;
+}
+
+.saved-search-alert[aria-pressed='true'] svg {
+  fill: currentColor;
+}
+
+.saved-search-alert:hover,
+.saved-search-alert[aria-pressed='true'] {
+  color: var(--accent);
+  filter: none;
+}
+
+.saved-search-alert:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
