@@ -24,7 +24,7 @@ export type SaveOutcome =
   | { ok: true; label: string }
   | {
       ok: false;
-      reason: 'duplicate' | 'full' | 'quota' | 'capture-failed';
+      reason: 'duplicate' | 'full' | 'capture-failed';
       existingLabel?: string;
     };
 
@@ -46,6 +46,7 @@ let handlers: SearchPanelHandlers | null = null;
 let root: HTMLElement | null = null;
 let pillEl: HTMLButtonElement | null = null;
 let pillCountEl: HTMLElement | null = null;
+let pillNewEl: HTMLElement | null = null;
 let panelEl: HTMLElement | null = null;
 let saveBtn: HTMLButtonElement | null = null;
 let statusEl: HTMLElement | null = null;
@@ -61,6 +62,9 @@ let currentPageRanges: SavedSearch['ranges'] = {};
 let renderedSearches: SavedSearches | null = null;
 let renderedHref = '';
 let renderedRangesKey = '';
+// Search id → cars matching it that this device hasn't seen (from the
+// background checks); see src/searchWatch.ts.
+let newCounts: Record<string, number> = {};
 let status: { text: string; kind: StatusKind } | null = null;
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 // True while the panel is open only because a status message opened it (e.g.
@@ -99,8 +103,9 @@ export function mountSearchPanel(h: SearchPanelHandlers): void {
   pillEl.className = 'pill';
   pillEl.type = 'button';
   pillEl.setAttribute('aria-haspopup', 'true');
-  pillEl.innerHTML = `${ICON_SVG}<span class="pill-label">Saved searches</span><span class="pill-count" hidden></span>`;
+  pillEl.innerHTML = `${ICON_SVG}<span class="pill-label">Saved searches</span><span class="pill-count" hidden></span><span class="pill-new" hidden></span>`;
   pillCountEl = pillEl.querySelector<HTMLElement>('.pill-count');
+  pillNewEl = pillEl.querySelector<HTMLElement>('.pill-new');
   pillEl.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -146,6 +151,7 @@ export function unmountSearchPanel(): void {
   root = null;
   pillEl = null;
   pillCountEl = null;
+  pillNewEl = null;
   panelEl = null;
   saveBtn = null;
   statusEl = null;
@@ -178,6 +184,12 @@ export function renderSearchList(
     pillCountEl.textContent = String(searches.length);
     pillCountEl.hidden = searches.length === 0;
   }
+  if (pillNewEl) {
+    const fresh = searches.reduce((sum, s) => sum + (newCounts[s.id] ?? 0), 0);
+    pillNewEl.textContent = `${fresh} new`;
+    pillNewEl.hidden = fresh === 0;
+    pillNewEl.title = fresh === 1 ? '1 new car in your saved searches' : `${fresh} new cars in your saved searches`;
+  }
 
   listEl.replaceChildren();
   if (searches.length === 0) {
@@ -188,6 +200,13 @@ export function renderSearchList(
     return;
   }
   for (const search of searches) listEl.appendChild(renderRow(search, href, pageRanges));
+}
+
+export function setSearchNewCounts(counts: Record<string, number>): void {
+  if (JSON.stringify(counts) === JSON.stringify(newCounts)) return;
+  newCounts = counts;
+  renderedSearches = null; // force a re-render with the new chips
+  renderSearchList(currentSearches, currentHref, currentPageRanges);
 }
 
 export function setPanelStatus(text: string, kind: StatusKind = 'info', autoClearMs?: number): void {
@@ -278,9 +297,6 @@ async function doSave(): Promise<void> {
       case 'full':
         setPanelStatus(`List is full (${MAX_SAVED_SEARCHES} max). Delete one to save another.`, 'error');
         break;
-      case 'quota':
-        setPanelStatus('Not enough sync storage left for this search. Delete one and retry.', 'error');
-        break;
       default:
         setPanelStatus("Couldn't read the filters on this page.", 'error', 6000);
     }
@@ -318,13 +334,28 @@ function renderRow(
     if (!handlers) return;
     void handlers.onOpen(search);
   });
+  const tags: HTMLElement[] = [];
   if (isCurrent) {
     const tag = document.createElement('span');
     tag.className = 'tag';
     tag.textContent = 'Current';
+    tags.push(tag);
+  }
+  const fresh = newCounts[search.id] ?? 0;
+  if (fresh > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'new-chip';
+    chip.textContent = `${fresh} new`;
+    chip.title =
+      fresh === 1
+        ? '1 car matched since you last opened this search'
+        : `${fresh} cars matched since you last opened this search`;
+    tags.push(chip);
+  }
+  if (tags.length > 0) {
     const head = document.createElement('div');
     head.className = 'row-head';
-    head.append(name, tag);
+    head.append(name, ...tags);
     main.append(head);
   } else {
     main.append(name);

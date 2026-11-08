@@ -47,7 +47,7 @@ describe('popup highlighting toggle', () => {
     const storage = await readFile(new URL('../src/storage.ts', import.meta.url), 'utf8');
 
     expect(storage).toContain('highlightingEnabledItem');
-    expect(storage).toContain("storage.defineItem<boolean>('sync:highlightingEnabled'");
+    expect(storage).toContain("storage.defineItem<boolean>('local:highlightingEnabled'");
     expect(storage).toContain('fallback: true');
   });
 

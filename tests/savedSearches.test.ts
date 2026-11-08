@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   addSearch,
-  byteSize,
   clampRange,
   compactAmount,
   conditionFromPath,
@@ -25,7 +24,6 @@ import {
   restoreRangeTarget,
   searchLabel,
   searchLabelShort,
-  SYNC_ITEM_BUDGET_BYTES,
   userSetRanges,
   type CapturedRange,
   type CapturedView,
@@ -364,12 +362,6 @@ describe('addSearch / findDuplicate / removeSearch / renameSearch', () => {
   it('rejects when full', () => {
     const list: SavedSearches = Array.from({ length: MAX_SAVED_SEARCHES }, (_, i) => search(`s${i}`));
     expect(addSearch(list, search('extra'))).toEqual({ ok: false, reason: 'full' });
-  });
-
-  it('rejects when the serialized list would exceed the sync byte budget', () => {
-    const heavy = search('h', { url: `https://www.tesla.com/inventory/used/my?x=${'a'.repeat(SYNC_ITEM_BUDGET_BYTES)}` });
-    expect(addSearch([], heavy)).toEqual({ ok: false, reason: 'quota' });
-    expect(byteSize([search('a')])).toBeGreaterThan(0);
   });
 
   it('removes by id', () => {

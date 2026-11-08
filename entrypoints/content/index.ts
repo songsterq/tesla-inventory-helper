@@ -1,6 +1,13 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { browser } from 'wxt/browser';
-import { highlightingEnabledItem, rulesItem, savedCarsItem, savedSearchesItem } from '../../src/storage';
+import {
+  highlightingEnabledItem,
+  rulesItem,
+  savedCarsItem,
+  savedSearchesItem,
+  searchWatchItem,
+} from '../../src/storage';
+import { whenStorageReady } from '../../src/storageReady';
 import { evalRules, type Rules } from '../../src/rules';
 import {
   extractVin,
@@ -28,6 +35,7 @@ import {
   conditionFromPath,
   createSavedSearch,
   groupsFromUrl,
+  isCurrentSearch,
   isInventoryListingPath,
   isSameSearchUrl,
   parseDigits,
@@ -49,9 +57,22 @@ import {
   type SavedSearches,
 } from '../../src/savedSearches';
 import {
+  asInventoryRequest,
+  collectSearchResults,
+  newCountsById,
+  parseInventoryRequestUrl,
+  requestsEqual,
+  requestSlidersMatch,
+  type InventoryRequest,
+  type SearchResults,
+  type SearchWatch,
+  type SliderValues,
+} from '../../src/searchWatch';
+import {
   mountSearchPanel,
   renderSearchList,
   setPanelStatus,
+  setSearchNewCounts,
   unmountSearchPanel,
   type SearchPanelHandlers,
 } from './searchPanel';
@@ -397,6 +418,59 @@ async function applyRanges(ranges: SavedSearch['ranges']): Promise<ApplyResult> 
   }
   return { applied: applied.filter((k) => !failed.includes(k)), failed };
 }
+
+// ─── Saved searches: Tesla's inventory API ───
+//
+// Listing pages load results from /inventory/api/v4/inventory-results. The
+// endpoint 403s the extension's service worker (Akamai) but answers this
+// content script like the page itself, so every call for "new matches" runs
+// here — on the page the shopper is viewing (baseline) or in the hidden check
+// tab the worker opens. See src/searchWatch.ts.
+
+const SEARCH_FETCH_TIMEOUT_MS = 15_000;
+const SEARCH_PAGE_PAUSE_MS = 300;
+// After the request a view starts from, how long until its cards count as
+// rendered (tags appear, the first "seen" report goes out).
+const VIEW_SETTLE_MS = 1000;
+// Coalesces "seen" reports while infinite scroll renders more cards.
+const VIEW_REPORT_DEBOUNCE_MS = 1000;
+
+// The live slider values (not just user-set ones), for matching a captured
+// request against what the page shows.
+function liveSliderValues(): SliderValues {
+  const out: SliderValues = {};
+  for (const key of RANGE_KEYS) {
+    const r = readRange(key);
+    if (r) out[key] = r.current;
+  }
+  return out;
+}
+
+async function fetchInventoryJson(path: string): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SEARCH_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(new URL(path, location.origin).href, {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function fetchSearchResults(
+  request: InventoryRequest,
+): Promise<(SearchResults & { truncated: boolean }) | null> {
+  return collectSearchResults(request, fetchInventoryJson, {
+    pauseMs: SEARCH_PAGE_PAUSE_MS,
+    sleep,
+  });
+}
 // ─── end brittle section ───
 
 export default defineContentScript({
@@ -409,11 +483,14 @@ export default defineContentScript({
   cssInjectionMode: 'manifest',
 
   async main(ctx) {
+    await whenStorageReady();
     let rules: Rules = await rulesItem.getValue();
     let highlightingEnabled = await highlightingEnabledItem.getValue();
     let searches: SavedSearches = await savedSearchesItem.getValue();
     let cars: SavedCars = await savedCarsItem.getValue();
     updateTrackButtons(cars);
+    let searchWatch: SearchWatch = await searchWatchItem.getValue();
+    setSearchNewCounts(newCountsById(searchWatch));
     let scheduled = false;
 
     const setGlow = (el: HTMLElement, ruleName: string | null) => {
@@ -584,6 +661,21 @@ export default defineContentScript({
       setPanelStatus(`Applied "${label}", but couldn't set ${which}.`, 'error', 8000);
     };
 
+    // Sliders restore one at a time, so the page can pass through states that
+    // match some other saved search. Viewing (which marks cars seen) is paused
+    // until the restore is done.
+    let restoring = false;
+    const restoreRanges = async (ranges: SavedSearch['ranges']): Promise<ApplyResult> => {
+      restoring = true;
+      endView();
+      try {
+        return await applyRanges(ranges);
+      } finally {
+        restoring = false;
+        evaluateView();
+      }
+    };
+
     const panelHandlers: SearchPanelHandlers = {
       onSave: async () => {
         const view = captureView();
@@ -605,12 +697,8 @@ export default defineContentScript({
           }
           return { ok: false, reason: result.reason };
         }
-        try {
-          await savedSearchesItem.setValue(result.searches);
-        } catch {
-          // chrome.storage.sync quota or write-rate error.
-          return { ok: false, reason: 'quota' };
-        }
+        // A failed write throws through to the panel's "Couldn't save" status.
+        await savedSearchesItem.setValue(result.searches);
         searches = result.searches;
         renderSearchList(searches, location.href, currentPageRanges());
         return { ok: true, label: searchLabelShort(search) };
@@ -619,7 +707,7 @@ export default defineContentScript({
         // Same listing already loaded → just push the sliders, no navigation.
         if (isSameSearchUrl(location.href, search.url)) {
           setPanelStatus(`Applying "${searchLabelShort(search)}"…`, 'info');
-          reportRestore(search, await applyRanges(search.ranges));
+          reportRestore(search, await restoreRanges(search.ranges));
           renderSearchList(searches, location.href, currentPageRanges());
           return;
         }
@@ -648,9 +736,170 @@ export default defineContentScript({
         .catch(() => null)) as SavedSearch | null;
       if (!search || typeof search !== 'object' || typeof search.description !== 'string') return;
       setPanelStatus(`Restoring "${searchLabelShort(search)}"…`, 'info');
-      reportRestore(search, await applyRanges(search.ranges ?? {}));
+      reportRestore(search, await restoreRanges(search.ranges ?? {}));
       renderSearchList(searches, location.href, currentPageRanges());
     };
+
+    // ─── Saved searches: new matches ───
+    //
+    // While the page IS a saved search (URL and sliders match) and the tab is
+    // visible, this page "views" it: Tesla's latest request is stored as that
+    // search's query, everything new or rendered is marked seen, and cards the
+    // shopper hadn't seen before get a "New" tag. A hidden tab — including the
+    // worker's check tab — never views anything. The worker owns every write;
+    // this side only reports.
+
+    // Latest Tesla inventory request by start time. A slow reply to an older
+    // request (filters since changed) must not replace a newer one.
+    let lastRequest: { request: InventoryRequest; startTime: number } | null = null;
+
+    type SearchView = {
+      id: string;
+      request: InventoryRequest;
+      // The search's seen VINs when the view began; cards outside it are "New"
+      // for the rest of this page session. null = no baseline yet, no tags.
+      seenAtStart: Set<string> | null;
+      settled: boolean; // results for this request have had time to render
+      reported: Set<string>;
+      reportedOnce: boolean;
+      baselining: boolean;
+    };
+    let view: SearchView | null = null;
+    let reportTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const renderedCardVins = (): string[] =>
+      inventoryCards()
+        .map((article) => extractVin(article.getAttribute('data-id')))
+        .filter((v): v is string => !!v);
+
+    const clearNewTags = () => {
+      document.querySelectorAll<HTMLElement>('.tih-new').forEach((el) => el.classList.remove('tih-new'));
+    };
+
+    const applyNewTags = () => {
+      const seen = view?.settled ? view.seenAtStart : null;
+      if (!seen) {
+        clearNewTags();
+        return;
+      }
+      for (const article of inventoryCards()) {
+        const vin = extractVin(article.getAttribute('data-id'));
+        article.classList.toggle('tih-new', !!vin && !seen.has(vin));
+      }
+    };
+
+    const endView = () => {
+      view = null;
+      if (reportTimer !== undefined) clearTimeout(reportTimer);
+      reportTimer = undefined;
+      clearNewTags();
+    };
+
+    // Tell the worker what's on screen. The first report always goes out (it
+    // carries the request even with no cards); later ones only for new cards.
+    const reportView = async (v: SearchView) => {
+      if (view !== v) return;
+      const fresh = renderedCardVins().filter((vin) => !v.reported.has(vin));
+      if (v.reportedOnce && fresh.length === 0) return;
+      v.reportedOnce = true;
+      fresh.forEach((vin) => v.reported.add(vin));
+      const res = (await browser.runtime
+        .sendMessage({ type: 'tih:search-viewed', id: v.id, request: v.request, renderedVins: fresh })
+        .catch(() => null)) as { needsBaseline?: boolean } | null;
+      if (!res?.needsBaseline || v.baselining || view !== v) return;
+      // First view on this device: everything matching right now is the baseline.
+      v.baselining = true;
+      const results = await fetchSearchResults(v.request);
+      if (DEBUG) console.debug('[TIH] search baseline', { id: v.id, results });
+      if (!results) return;
+      await browser.runtime
+        .sendMessage({ type: 'tih:search-baseline', id: v.id, request: v.request, results })
+        .catch(() => null);
+    };
+
+    const scheduleViewReport = () => {
+      const v = view;
+      if (!v?.settled || reportTimer !== undefined) return;
+      reportTimer = setTimeout(() => {
+        reportTimer = undefined;
+        void reportView(v);
+      }, VIEW_REPORT_DEBOUNCE_MS);
+    };
+
+    const startView = (id: string, request: InventoryRequest) => {
+      endView();
+      const seen = searchWatch[id]?.seen;
+      const v: SearchView = {
+        id,
+        request,
+        seenAtStart: seen ? new Set(Object.keys(seen)) : null,
+        settled: false,
+        reported: new Set(),
+        reportedOnce: false,
+        baselining: false,
+      };
+      view = v;
+      if (DEBUG) console.debug('[TIH] search view', { id, request });
+      // Give the results of this request time to replace the previous cards, so
+      // neither the tags nor the "seen" report pick up the old ones.
+      setTimeout(() => {
+        if (view !== v) return;
+        v.settled = true;
+        applyNewTags();
+        void reportView(v);
+      }, VIEW_SETTLE_MS);
+    };
+
+    // Re-run whenever Tesla makes a request, the tab's visibility changes, or
+    // the saved searches change.
+    const evaluateView = () => {
+      const req = lastRequest?.request;
+      if (
+        restoring ||
+        document.visibilityState !== 'visible' ||
+        !req ||
+        !isInventoryListingPath(location.pathname)
+      ) {
+        endView();
+        return;
+      }
+      const pageRanges = currentPageRanges();
+      const search = searches.find((s) => isCurrentSearch(s, location.href, pageRanges));
+      if (!search) {
+        endView();
+        return;
+      }
+      if (view && view.id !== search.id) endView();
+      // Wait for the request that reflects the sliders on screen.
+      if (!requestSlidersMatch(req, liveSliderValues())) return;
+      if (view && requestsEqual(view.request, req)) return;
+      startView(search.id, req);
+    };
+
+    const onSearchPage = () => {
+      applyNewTags();
+      scheduleViewReport();
+    };
+
+    // Tesla's own requests, seen through resource timing. An observer (unlike
+    // getEntriesByType) keeps receiving entries after the 250-entry timeline
+    // buffer fills, which a long SPA session can reach.
+    const requestObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const request = parseInventoryRequestUrl(entry.name);
+        if (!request) continue;
+        if (lastRequest && entry.startTime < lastRequest.startTime) continue;
+        lastRequest = { request, startTime: entry.startTime };
+        if (DEBUG) console.debug('[TIH] inventory request', request);
+      }
+      evaluateView();
+    });
+    try {
+      requestObserver.observe({ type: 'resource', buffered: true });
+    } catch {
+      // No resource timing: new-match tracking stays off on this page.
+    }
+    document.addEventListener('visibilitychange', evaluateView);
 
     const apply = () => {
       const path = location.pathname;
@@ -660,8 +909,10 @@ export default defineContentScript({
         if (isInventoryListingPath(path)) {
           mountSearchPanel(panelHandlers);
           renderSearchList(searches, location.href, currentPageRanges());
+          onSearchPage();
         } else {
           unmountSearchPanel();
+          endView();
         }
         if (isUsedInventoryPath(path)) {
           applyInventory();
@@ -673,6 +924,7 @@ export default defineContentScript({
       }
       if (/\/order\/[A-Za-z0-9]+/.test(path)) {
         unmountSearchPanel();
+        endView();
         if (isUsedOrderUrl(location.href)) {
           applyOrder();
           injectOrderButton();
@@ -696,6 +948,9 @@ export default defineContentScript({
     observer.observe(document.body, { childList: true, subtree: true });
     ctx.onInvalidated(() => {
       observer.disconnect();
+      requestObserver.disconnect();
+      document.removeEventListener('visibilitychange', evaluateView);
+      endView();
       unmountSearchPanel();
       disposeTrackButtons();
     });
@@ -711,10 +966,19 @@ export default defineContentScript({
       schedule();
     });
 
-    // Keeps the on-page list in step with popup deletes and other devices.
+    // Keeps the on-page list in step with popup deletes and other devices. A
+    // save on this page also lands here, which starts viewing the new search.
     savedSearchesItem.watch((next) => {
       searches = next;
       renderSearchList(searches, location.href, currentPageRanges());
+      evaluateView();
+    });
+
+    // New-match counts for the pill and rows, kept live as checks and views
+    // land. A view in progress keeps its own start-of-view snapshot.
+    searchWatchItem.watch((next) => {
+      searchWatch = next;
+      setSearchNewCounts(newCountsById(next));
     });
 
     // Keeps every mounted Track button in step with popup removals and
@@ -728,6 +992,12 @@ export default defineContentScript({
       const type = (msg as { type?: string } | null)?.type;
       if (type === 'tih:scrape') {
         return Promise.resolve(scrapeCar());
+      }
+      // The worker's check tab: page through one saved search's results.
+      if (type === 'tih:fetch-search') {
+        const request = asInventoryRequest((msg as { request?: unknown }).request);
+        if (!request) return Promise.resolve({ ok: false });
+        return fetchSearchResults(request).then((r) => (r ? { ok: true, ...r } : { ok: false }));
       }
       return undefined;
     });

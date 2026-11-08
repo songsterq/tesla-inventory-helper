@@ -2,8 +2,15 @@ import { storage } from 'wxt/utils/storage';
 import type { Rules } from './rules';
 import type { SavedCars } from './savedCars';
 import type { SavedSearch, SavedSearches } from './savedSearches';
-import { defaultRules, migrateRulesToV2, migrateRulesToV3 } from './defaultRules';
+import type { SearchWatch } from './searchWatch';
+import { defaultRules, RULES_MIGRATIONS, RULES_STORAGE_VERSION } from './defaultRules';
 import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck';
+
+// Everything persistent lives in `local`: one place, per device. Until v1.2.5
+// the rules, the highlight toggle, the auto-check schedule and saved searches
+// were in `sync`; the background worker copies those over once (see
+// src/syncMigration.ts and migratedFromSyncItem), and the popup and content
+// scripts wait for that copy before their first read (src/storageReady.ts).
 
 // v2 re-seeds users still holding an untouched copy of the v1 defaults, whose
 // 2023 cutoffs were wrong for Model S/X and Model 3; see migrateRulesToV2.
@@ -17,47 +24,51 @@ import { DEFAULT_AUTO_CHECK_HOUR, DEFAULT_AUTO_CHECK_MINUTES } from './autoCheck
 // also fire-and-forget, so a throw would only surface as a console.error, which
 // is why migrateRulesToV2 passes unrecognized values through instead of
 // rejecting them.
-export const rulesItem = storage.defineItem<Rules>('sync:rules', {
+export const rulesItem = storage.defineItem<Rules>('local:rules', {
   fallback: defaultRules,
-  version: 3,
-  migrations: {
-    2: migrateRulesToV2,
-    3: migrateRulesToV3,
-  },
+  version: RULES_STORAGE_VERSION,
+  migrations: RULES_MIGRATIONS,
 });
 
-export const highlightingEnabledItem = storage.defineItem<boolean>('sync:highlightingEnabled', {
+export const highlightingEnabledItem = storage.defineItem<boolean>('local:highlightingEnabled', {
   fallback: true,
 });
 
-// Automatic price-check frequency in minutes (0 = off). A roaming preference like
-// rules/highlighting, so it lives in `sync`. The background worker turns this into
-// a chrome.alarms schedule; see src/autoCheck.ts.
-export const autoCheckMinutesItem = storage.defineItem<number>('sync:autoCheckMinutes', {
+// Automatic price-check frequency in minutes (0 = off). The background worker
+// turns this into a chrome.alarms schedule; see src/autoCheck.ts.
+export const autoCheckMinutesItem = storage.defineItem<number>('local:autoCheckMinutes', {
   fallback: DEFAULT_AUTO_CHECK_MINUTES,
 });
 
 // Local-time hour (0–23) the automatic checks anchor to — the "9AM" in the
-// popup's time dropdown. Roams with the frequency, so it lives in `sync`. The
-// background worker feeds it to planAlarm to phase-align the chrome.alarms
-// schedule; see src/autoCheck.ts.
-export const autoCheckHourItem = storage.defineItem<number>('sync:autoCheckHour', {
+// popup's time dropdown. The background worker feeds it to planAlarm to
+// phase-align the chrome.alarms schedule; see src/autoCheck.ts.
+export const autoCheckHourItem = storage.defineItem<number>('local:autoCheckHour', {
   fallback: DEFAULT_AUTO_CHECK_HOUR,
 });
 
-// The watchlist lives in `local`, not `sync`, on purpose: chrome.storage.sync
-// caps at ~8KB per item, and one SavedCars array with price history blows past
-// that quickly. Monitoring data is also device-local and transient by nature, so
-// it doesn't need to roam across the user's machines the way rule config does.
+// The watchlist, with each car's price history.
 export const savedCarsItem = storage.defineItem<SavedCars>('local:savedCars', {
   fallback: [],
 });
 
-// Saved inventory searches (listing URL + slider state). Small records that a
-// shopper wants on every machine, so `sync` — with the count/byte caps in
-// src/savedSearches.ts keeping the item under Chrome's 8KB per-item limit.
-export const savedSearchesItem = storage.defineItem<SavedSearches>('sync:savedSearches', {
+// Saved inventory searches (listing URL + slider state); see src/savedSearches.ts.
+export const savedSearchesItem = storage.defineItem<SavedSearches>('local:savedSearches', {
   fallback: [],
+});
+
+// Per-search "new matches" state (captured Tesla request, seen VINs, new VINs),
+// keyed by saved-search id; see src/searchWatch.ts.
+// SINGLE WRITER: only the background worker writes this item (serialized, see
+// updateSearchWatch). The content script and popup read it and send messages.
+export const searchWatchItem = storage.defineItem<SearchWatch>('local:searchWatch', {
+  fallback: {},
+});
+
+// Set once the background worker has copied the pre-v1.2.5 `sync` values into
+// `local` (src/syncMigration.ts). Never unset.
+export const migratedFromSyncItem = storage.defineItem<boolean>('local:migratedFromSync', {
+  fallback: false,
 });
 
 // A search queued for restore in a specific tab, keyed by tab id. The

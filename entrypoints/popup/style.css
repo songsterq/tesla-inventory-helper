@@ -552,6 +552,20 @@ button.link:hover {
   -webkit-box-orient: vertical;
 }
 
+/* Cars matching the search that this device hasn't seen yet. The popup's one
+   accent is the icon red, so the chip uses it rather than the on-page amber. */
+.search-new {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
 /* ─── Rules accordion ─── */
 
 .rules-editor {
