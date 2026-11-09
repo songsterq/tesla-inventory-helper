@@ -6,9 +6,13 @@ Source of truth for everything entered into the Chrome Web Store dashboard. Upda
 
 ## Description
 
-🔖 Save the Tesla inventory search Tesla won’t keep.
+🔖 Save the Tesla inventory search Tesla won’t keep — and get alerted when a new car matches it.
 
-Set up the view you want on Tesla.com — then come back to it later, intact. Search radius, year, mileage, payment: restored. No more rebuilding the same search every session. Each saved search shows how many new cars have matched since you last opened it. New saves notify you about new matches, checked every 15 minutes, every 30 minutes, or every hour while Chrome is open; the bell turns that off. Works with used and new inventory.
+🚨 New-inventory alerts
+Waiting weeks or months on your order? Save a new-inventory search for the car you’d happily take instead, and get a desktop notification when one shows up. Each alert spells out the car’s paint, wheels, interior and seats, and clicking it takes you straight to that car (or to your search, when several arrive at once), so you can call Tesla about swapping your order before someone else claims it. Tip: leave out the option you care least about to widen the net. Searches are checked every 15 minutes, every 30 minutes, or every hour while Chrome is open, and the bell on each search turns its alerts on or off.
+
+💾 Saved searches, used and new
+Set up the view you want on Tesla.com — then come back to it later, intact. Search radius, year, mileage, payment: restored. No more rebuilding the same search every session. Each saved search shows how many new cars have matched since you last opened it, and those cars are tagged “New” when you do.
 
 🔔 Watchlist
 Save cars you’re serious about. Catch price drops and listings that disappear, so you can act before someone else does. Everything stays in your browser.

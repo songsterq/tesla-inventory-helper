@@ -4,7 +4,7 @@ export default defineConfig({
   srcDir: '.',
   manifest: {
     name: 'Tesla Inventory Helper',
-    description: 'Save Tesla inventory searches that stick. Watchlist + HW4 glow. Private & local.',
+    description: 'Save Tesla inventory searches and get alerted when a new car matches. Watchlist + HW4 glow. Private & local.',
     permissions: ['storage', 'tabs', 'alarms', 'notifications'],
     host_permissions: [
       'https://www.tesla.com/inventory/*',
