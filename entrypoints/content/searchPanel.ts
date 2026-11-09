@@ -318,9 +318,13 @@ function renderRow(
   const li = document.createElement('li');
   li.className = 'row';
   li.dataset.id = search.id;
-  // URL and sliders both match: this row is the view on screen.
+  // URL and sliders both match: this row is the view on screen. It glows like
+  // a matched car instead of carrying a label, which would cost row width.
   const isCurrent = isCurrentSearch(search, href, pageRanges);
-  if (isCurrent) li.classList.add('current');
+  if (isCurrent) {
+    li.classList.add('current');
+    li.setAttribute('aria-current', 'true');
+  }
 
   const main = document.createElement('div');
   main.className = 'row-main';
@@ -337,13 +341,6 @@ function renderRow(
     if (!handlers) return;
     void handlers.onOpen(search);
   });
-  const tags: HTMLElement[] = [];
-  if (isCurrent) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = 'Current';
-    tags.push(tag);
-  }
   const fresh = newCounts[search.id] ?? 0;
   if (fresh > 0) {
     const chip = document.createElement('span');
@@ -353,12 +350,9 @@ function renderRow(
       fresh === 1
         ? '1 car matched since you last opened this search'
         : `${fresh} cars matched since you last opened this search`;
-    tags.push(chip);
-  }
-  if (tags.length > 0) {
     const head = document.createElement('div');
     head.className = 'row-head';
-    head.append(name, ...tags);
+    head.append(name, chip);
     main.append(head);
   } else {
     main.append(name);

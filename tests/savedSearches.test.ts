@@ -29,6 +29,7 @@ import {
   searchLabel,
   searchLabelShort,
   userSetRanges,
+  withSearchedRange,
   type CapturedRange,
   type CapturedView,
   type SavedSearch,
@@ -118,6 +119,37 @@ describe('normalizeSearchUrl / isSameSearchUrl', () => {
         'https://www.tesla.com/inventory/used/m3?zip=98052',
       ),
     ).toBe(false);
+  });
+
+  // The two URLs Tesla writes for one view (verified Nov 2026): a fresh load
+  // drops `range` and appends `PaymentType`; a filter click writes `range` back
+  // and leaves `PaymentType` out.
+  const LOADED =
+    'https://www.tesla.com/inventory/new/my?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&zip=98052&PaymentType=cash';
+  const CLICKED =
+    'https://www.tesla.com/inventory/new/my?arrangeby=plh&zip=98052&range=200&TRIM=MY_PR_AWD&PAINT=WHITE';
+
+  it("treats Tesla's load and filter-click URLs for one view as the same search", () => {
+    expect(isSameSearchUrl(LOADED, CLICKED)).toBe(true);
+    expect(isSameSearchUrl(`${CLICKED}&PaymentType=lease`, LOADED)).toBe(true);
+    expect(isSameSearchUrl(LOADED, CLICKED.replace('PAINT=WHITE', 'PAINT=BLACK'))).toBe(false);
+    expect(isSameSearchUrl(LOADED, CLICKED.replace('/new/', '/used/'))).toBe(false);
+  });
+
+  it('counts the radius only when both URLs carry one', () => {
+    expect(isSameSearchUrl(CLICKED, CLICKED.replace('range=200', 'range=50'))).toBe(false);
+    expect(isSameSearchUrl(`${LOADED}&range=200`, CLICKED)).toBe(true);
+    expect(isSameSearchUrl(`${LOADED}&range=100`, CLICKED)).toBe(false);
+  });
+
+  it('fills in the searched radius only when the URL has none', () => {
+    expect(withSearchedRange(LOADED, 200)).toBe(`${LOADED}&range=200`);
+    expect(withSearchedRange(CLICKED, 50)).toBe(CLICKED);
+    expect(withSearchedRange(LOADED, null)).toBe(LOADED);
+    expect(withSearchedRange(LOADED, Number.NaN)).toBe(LOADED);
+    // A saved 200 mi search isn't the view once Tesla runs its stored 50 mi.
+    expect(isSameSearchUrl(withSearchedRange(LOADED, 50), CLICKED)).toBe(false);
+    expect(isSameSearchUrl(withSearchedRange(LOADED, 200), CLICKED)).toBe(true);
   });
 
   it('keeps a URL without a query string bare', () => {
@@ -339,6 +371,17 @@ describe('isCurrentSearch', () => {
     expect(isCurrentSearch(a, 'https://www.tesla.com/inventory/used/m3?arrangeby=plh&zip=98052', page)).toBe(false);
   });
 
+  it('recognizes a search saved after filter clicks on a freshly loaded page', () => {
+    const saved = search('n', {
+      url: 'https://www.tesla.com/inventory/new/my?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&range=200&zip=98052',
+      ranges: {},
+    });
+    const loaded =
+      'https://www.tesla.com/inventory/new/my?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&zip=98052&PaymentType=cash';
+    expect(isCurrentSearch(saved, withSearchedRange(loaded, 200), {})).toBe(true);
+    expect(isCurrentSearch(saved, withSearchedRange(loaded, 100), {})).toBe(false);
+  });
+
   it('treats sliders at their bounds as "no range", matching a search saved that way', () => {
     const plain = search('c', { url, ranges: {} });
     expect(isCurrentSearch(plain, url, {})).toBe(true);
@@ -361,6 +404,13 @@ describe('addSearch / findDuplicate / removeSearch / renameSearch', () => {
     // Same url, different sliders → a distinct search.
     const other = search('c', { url: existing.url, ranges: { Year: { min: 2024, max: 2026 } } });
     expect(addSearch([existing], other).ok).toBe(true);
+  });
+
+  it("rejects the same view saved under Tesla's other URL form, but not another radius", () => {
+    const base = 'https://www.tesla.com/inventory/new/my?TRIM=MY_PR_AWD&arrangeby=plh&zip=98052';
+    const existing = search('a', { url: `${base}&range=200`, ranges: {} });
+    expect(findDuplicate([existing], search('b', { url: `${base}&PaymentType=cash`, ranges: {} }))?.id).toBe('a');
+    expect(findDuplicate([existing], search('c', { url: `${base}&range=50`, ranges: {} }))).toBeUndefined();
   });
 
   it('rejects when full', () => {

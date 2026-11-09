@@ -227,6 +227,16 @@ function requestSlider(query: Record<string, unknown>, key: RangeKey): [number, 
   return readPair(query[key]);
 }
 
+// The radius the request searched, in the listing's distance unit; null when
+// absent or unreadable. Tesla runs its own stored radius whatever the URL says,
+// so this is the radius the page really shows (see withSearchedRange).
+export function requestRange(request: InventoryRequest): number | null {
+  const query = isRecord(request.body.query) ? request.body.query : {};
+  const raw = query.range;
+  const range = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw;
+  return typeof range === 'number' && Number.isFinite(range) && range >= 0 ? range : null;
+}
+
 // Does this request reflect the sliders on screen? Guards attribution: a reply
 // to a request made before the user moved a slider must not be stored for the
 // search the page has since become. A slider missing on either side can't be

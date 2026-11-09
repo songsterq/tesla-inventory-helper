@@ -50,6 +50,7 @@ import {
   restoreRangeTarget,
   searchLabelShort,
   userSetRanges,
+  withSearchedRange,
   type Bounds,
   type CapturedGroup,
   type CapturedRange,
@@ -64,6 +65,7 @@ import {
   collectSearchResults,
   newCountsById,
   parseInventoryRequestUrl,
+  requestRange,
   requestsEqual,
   requestSlidersMatch,
   validSearchWatch,
@@ -297,12 +299,19 @@ const capturePaymentType = (sidebar: HTMLElement): string | null => {
 };
 
 // Snapshot everything the description needs. Null when this isn't a listing
-// page or the sidebar hasn't rendered — never throws.
-function captureView(): CapturedView | null {
+// page or the sidebar hasn't rendered — never throws. `href` is the page URL
+// with the searched radius filled in, so the description names the radius the
+// page really shows.
+function captureView(href: string): CapturedView | null {
   const condition = conditionFromPath(location.pathname);
   const sidebar = document.querySelector<HTMLElement>(SIDEBAR_SEL);
   if (!condition || !sidebar) return null;
-  const params = new URLSearchParams(location.search);
+  let params: URLSearchParams;
+  try {
+    params = new URL(href, location.origin).searchParams;
+  } catch {
+    params = new URLSearchParams(location.search);
+  }
   const ranges: CapturedView['ranges'] = {};
   for (const key of RANGE_KEYS) {
     const r = captureRange(key);
@@ -323,7 +332,7 @@ function captureView(): CapturedView | null {
     model: captureModel(sidebar),
     paymentType: capturePaymentType(sidebar),
     // Collapsed accordions have no inputs in the DOM; fill those from the URL.
-    groups: [...domGroups, ...groupsFromUrl(location.search, domGroups.map((g) => g.key))],
+    groups: [...domGroups, ...groupsFromUrl(params.toString(), domGroups.map((g) => g.key))],
     ranges,
     currencySymbol,
     distanceUnit,
@@ -664,6 +673,18 @@ export default defineContentScript({
 
     // ─── Saved searches ───
 
+    // Latest Tesla inventory request by start time. A slow reply to an older
+    // request (filters since changed) must not replace a newer one.
+    let lastRequest: { request: InventoryRequest; startTime: number } | null = null;
+
+    // The page URL with the radius Tesla actually searched filled in when the
+    // URL has none, which is what saving, the panel and viewing compare
+    // against (see withSearchedRange).
+    const pageSearchHref = (): string =>
+      withSearchedRange(location.href, lastRequest ? requestRange(lastRequest.request) : null);
+
+    const renderPanelList = () => renderSearchList(searches, pageSearchHref(), currentPageRanges());
+
     const reportRestore = (search: SavedSearch, result: ApplyResult) => {
       const label = searchLabelShort(search);
       if (result.failed.length === 0) {
@@ -691,10 +712,11 @@ export default defineContentScript({
 
     const panelHandlers: SearchPanelHandlers = {
       onSave: async () => {
-        const view = captureView();
+        const href = pageSearchHref();
+        const view = captureView(href);
         if (!view) return { ok: false, reason: 'capture-failed' };
         const id = crypto.randomUUID().slice(0, 8);
-        const search = createSavedSearch(view, location.href, Date.now(), id);
+        const search = createSavedSearch(view, href, Date.now(), id);
         // Build from a fresh read so a save cannot overwrite a rename, delete,
         // or save that arrived since this content script's watch last fired.
         const current = await savedSearchesItem.getValue();
@@ -713,15 +735,15 @@ export default defineContentScript({
         // A failed write throws through to the panel's "Couldn't save" status.
         await savedSearchesItem.setValue(result.searches);
         searches = result.searches;
-        renderSearchList(searches, location.href, currentPageRanges());
+        renderPanelList();
         return { ok: true, label: searchLabelShort(search) };
       },
       onOpen: async (search) => {
         // Same listing already loaded → just push the sliders, no navigation.
-        if (isSameSearchUrl(location.href, search.url)) {
+        if (isSameSearchUrl(pageSearchHref(), search.url)) {
           setPanelStatus(`Applying "${searchLabelShort(search)}"…`, 'info');
           reportRestore(search, await restoreRanges(search.ranges));
-          renderSearchList(searches, location.href, currentPageRanges());
+          renderPanelList();
           return;
         }
         setPanelStatus(`Opening "${searchLabelShort(search)}"…`, 'info');
@@ -755,7 +777,7 @@ export default defineContentScript({
       if (!search || typeof search !== 'object' || typeof search.description !== 'string') return;
       setPanelStatus(`Restoring "${searchLabelShort(search)}"…`, 'info');
       reportRestore(search, await restoreRanges(search.ranges ?? {}));
-      renderSearchList(searches, location.href, currentPageRanges());
+      renderPanelList();
     };
 
     // ─── Saved searches: new matches ───
@@ -766,10 +788,6 @@ export default defineContentScript({
     // shopper hadn't viewed before get a "New" tag. A hidden tab — including the
     // worker's check tab — never views anything. The worker owns every write;
     // this side only reports.
-
-    // Latest Tesla inventory request by start time. A slow reply to an older
-    // request (filters since changed) must not replace a newer one.
-    let lastRequest: { request: InventoryRequest; startTime: number } | null = null;
 
     type SearchView = {
       id: string;
@@ -887,7 +905,8 @@ export default defineContentScript({
         return;
       }
       const pageRanges = currentPageRanges();
-      const search = searches.find((s) => isCurrentSearch(s, location.href, pageRanges));
+      const href = pageSearchHref();
+      const search = searches.find((s) => isCurrentSearch(s, href, pageRanges));
       if (!search) {
         endView();
         return;
@@ -932,7 +951,7 @@ export default defineContentScript({
         // The saved-search pill lives on used AND new listing pages; nowhere else.
         if (isInventoryListingPath(path)) {
           mountSearchPanel(panelHandlers);
-          renderSearchList(searches, location.href, currentPageRanges());
+          renderPanelList();
           onSearchPage();
         } else {
           unmountSearchPanel();
@@ -994,7 +1013,7 @@ export default defineContentScript({
     // save on this page also lands here, which starts viewing the new search.
     savedSearchesItem.watch((next) => {
       searches = next;
-      renderSearchList(searches, location.href, currentPageRanges());
+      renderPanelList();
       evaluateView();
     });
 

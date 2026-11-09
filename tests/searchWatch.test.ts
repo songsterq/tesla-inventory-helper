@@ -20,6 +20,7 @@ import {
   pruneOrphans,
   pruneKnown,
   requestsEqual,
+  requestRange,
   requestSlidersMatch,
   KNOWN_CAP,
   KNOWN_TTL_MS,
@@ -276,6 +277,21 @@ describe('collectSearchResults', () => {
     );
     expect(calls).toBe(1);
     expect(result).toEqual({ total: 0, cars: [], truncated: false });
+  });
+});
+
+describe('requestRange', () => {
+  it('reads the radius Tesla searched', () => {
+    expect(requestRange(parseInventoryRequestUrl(requestUrl({ query: { range: 200 } }))!)).toBe(200);
+    expect(requestRange(parseInventoryRequestUrl(requestUrl({ query: { range: '50' } }))!)).toBe(50);
+    expect(requestRange(parseInventoryRequestUrl(requestUrl({ query: { range: 0 } }))!)).toBe(0);
+  });
+
+  it('returns null when the radius is missing or unreadable', () => {
+    expect(requestRange(parseInventoryRequestUrl(requestUrl({ query: {} }))!)).toBeNull();
+    expect(requestRange(parseInventoryRequestUrl(requestUrl({ query: { range: '' } }))!)).toBeNull();
+    expect(requestRange(parseInventoryRequestUrl(requestUrl({ query: { range: 'far' } }))!)).toBeNull();
+    expect(requestRange(parseInventoryRequestUrl(requestUrl({ query: { range: -1 } }))!)).toBeNull();
   });
 });
 

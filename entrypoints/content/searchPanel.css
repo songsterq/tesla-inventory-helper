@@ -74,6 +74,23 @@
   }
 }
 
+/* The same pulse again, scaled down for a list row so the glow stays inside
+   the list's 8px padding (the list scrolls, which clips anything wider). The
+   amber is theme-independent, like the pill's. */
+@keyframes tih-row-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.55),
+      0 0 6px 1px rgba(255, 191, 0, 0.45);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.95),
+      0 0 10px 2px rgba(255, 191, 0, 0.75);
+  }
+}
+
 /* The pill sits in Tesla's toolbar, so it borrows Tesla's light outlined look
    rather than the panel styling. */
 .pill {
@@ -278,8 +295,22 @@
   background: var(--row-hover-bg);
 }
 
+/* The search the page currently shows (URL and sliders both match) pulses like
+   a matched car instead of carrying a label. Lifted above its neighbours so the
+   glow reads evenly on both sides of the 4px gap. */
 .row.current {
-  box-shadow: inset 3px 0 0 #e82127;
+  position: relative;
+  z-index: 1;
+  animation: tih-row-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row.current {
+    animation: none;
+    box-shadow:
+      0 0 0 2px rgba(255, 191, 0, 0.75),
+      0 0 8px 2px rgba(255, 191, 0, 0.6);
+  }
 }
 
 .row-head {
@@ -291,20 +322,6 @@
 
 .row-head .name {
   min-width: 0;
-}
-
-/* Marks the one search the page currently shows (URL and sliders both match). */
-.tag {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: #e82127;
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.4;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
 }
 
 /* Cars matching this search that the shopper hasn't seen on this device. */
