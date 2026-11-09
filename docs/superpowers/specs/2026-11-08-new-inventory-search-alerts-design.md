@@ -309,7 +309,7 @@ do today, and arrivals add to them.
   every <N> min while Chrome is open." The current alert frequency is used,
   with "hour" for 60 minutes.
 - **Popup header:** in the Saved searches `monitor-head`, a `<select>`
-  with options "Alerts every 15 min", "Alerts every 30 min", "Alerts every hour". It's hidden unless some
+  with options "Check every 15 min", "Check every 30 min", "Check every hour". It's hidden unless some
   search has alerts on, the same pattern as the time dropdown.
 - **On-page panel row:** the same bell in `row-actions`, before rename. The
   panel has no frequency select; it follows the system light/dark palette,
