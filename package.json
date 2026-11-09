@@ -2,7 +2,7 @@
   "name": "tesla-inventory-helper",
   "description": "Save Tesla inventory searches and get alerted when a new car matches. Watchlist + HW4 glow. Private & local.",
   "private": true,
-  "version": "1.2.4",
+  "version": "1.2.5",
   "type": "module",
   "scripts": {
     "dev": "wxt",
