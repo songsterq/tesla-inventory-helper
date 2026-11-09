@@ -10,6 +10,7 @@ import {
 import { whenStorageReady } from '../../src/storageReady';
 import { evalRules, type Rules } from '../../src/rules';
 import {
+  carKeyFromDataId,
   extractVin,
   extractVinFromOrderPath,
   isUsedInventoryPath,
@@ -34,19 +35,23 @@ import {
   clampRange,
   conditionFromPath,
   createSavedSearch,
+  distanceUnitFromPath,
   groupsFromUrl,
   isCurrentSearch,
   isInventoryListingPath,
-  isSameSearchUrl,
+  isSameListing,
   parseDigits,
   planRangeWrites,
   RANGE_KEYS,
   rangeWriteSettled,
   removeSearch,
   renameSearch,
+  setSearchAlerts,
   restoreRangeTarget,
+  savedSearchRange,
   searchLabelShort,
   userSetRanges,
+  withSearchedRange,
   type Bounds,
   type CapturedGroup,
   type CapturedRange,
@@ -61,8 +66,10 @@ import {
   collectSearchResults,
   newCountsById,
   parseInventoryRequestUrl,
+  requestRange,
   requestsEqual,
   requestSlidersMatch,
+  validSearchWatch,
   type InventoryRequest,
   type SearchResults,
   type SearchWatch,
@@ -188,12 +195,14 @@ function scrapeCar(): ScrapeResult {
   return { ready: false };
 }
 
-// ─── Saved searches: sidebar capture + slider restore ───
+// ─── Saved searches: sidebar capture + radius and slider restore ───
 //
-// tesla.com keeps checkbox/radio filters, sort, zip and radius in the URL but
-// NOT the three sliders (Payment, Mileage, Year), and it ignores them if passed
-// as query params. So a saved search is the URL plus the slider values, and a
-// restore writes those values back into the sidebar after the page loads.
+// tesla.com keeps checkbox/radio filters, sort and zip in the URL but NOT the
+// three sliders (Payment, Mileage, Year), and it ignores them if passed as
+// query params. The radius is in the URL but Tesla searches its own stored
+// radius on load (see VIEW_IGNORED_PARAMS in src/savedSearches.ts). So a saved
+// search is the URL plus the slider values, and a restore writes the radius and
+// the sliders back into the page after it loads.
 
 const SIDEBAR_SEL = 'div.filter-content-wrapper';
 const SLIDER_WAIT_MS = 15_000;
@@ -293,12 +302,19 @@ const capturePaymentType = (sidebar: HTMLElement): string | null => {
 };
 
 // Snapshot everything the description needs. Null when this isn't a listing
-// page or the sidebar hasn't rendered — never throws.
-function captureView(): CapturedView | null {
+// page or the sidebar hasn't rendered — never throws. `href` is the page URL
+// with the searched radius filled in, so the description names the radius the
+// page really shows.
+function captureView(href: string): CapturedView | null {
   const condition = conditionFromPath(location.pathname);
   const sidebar = document.querySelector<HTMLElement>(SIDEBAR_SEL);
   if (!condition || !sidebar) return null;
-  const params = new URLSearchParams(location.search);
+  let params: URLSearchParams;
+  try {
+    params = new URL(href, location.origin).searchParams;
+  } catch {
+    params = new URLSearchParams(location.search);
+  }
   const ranges: CapturedView['ranges'] = {};
   for (const key of RANGE_KEYS) {
     const r = captureRange(key);
@@ -309,9 +325,8 @@ function captureView(): CapturedView | null {
   // Tesla shows no unit next to the odometer boxes; fall back to the locale
   // prefix (everything outside the US/UK paths reads in km).
   const odometerText = rangeTextInput('Odometer', 'Min')?.closest('div.filter')?.textContent ?? '';
-  const locale = /^\/([a-z]{2}_[A-Z]{2})\//.exec(location.pathname)?.[1] ?? 'en_US';
   const distanceUnit: 'mi' | 'km' =
-    /\bkm\b/i.test(odometerText) || !['en_US', 'en_GB'].includes(locale) ? 'km' : 'mi';
+    /\bkm\b/i.test(odometerText) ? 'km' : distanceUnitFromPath(location.pathname);
   const rangeParam = params.get('range');
   const radius = rangeParam !== null && rangeParam !== '' ? Number(rangeParam) : NaN;
   const domGroups = captureGroups(sidebar);
@@ -320,7 +335,7 @@ function captureView(): CapturedView | null {
     model: captureModel(sidebar),
     paymentType: capturePaymentType(sidebar),
     // Collapsed accordions have no inputs in the DOM; fill those from the URL.
-    groups: [...domGroups, ...groupsFromUrl(location.search, domGroups.map((g) => g.key))],
+    groups: [...domGroups, ...groupsFromUrl(params.toString(), domGroups.map((g) => g.key))],
     ranges,
     currencySymbol,
     distanceUnit,
@@ -387,6 +402,72 @@ async function applyRange(key: RangeKey, target: SavedRange): Promise<boolean> {
   return !!final && rangeWriteSettled(target, final.current, final.bounds ?? UNBOUNDED);
 }
 
+// The radius dropdown lives in Tesla's "Search Area" dialog, opened from the ZIP
+// link in the listing header, and leaves the DOM when the dialog closes. Setting
+// it through the native value setter plus `change` makes Tesla refetch, rewrite
+// the URL's `range` and store the new radius (verified Nov 2026). Options are
+// Tesla's radii in the listing's unit; 0 is "All Deliverable".
+const SEARCH_AREA_OPEN_SEL = '.postal-code-results-cta button';
+const SEARCH_AREA_DIALOG_SEL = 'dialog.postal-search-modal--container';
+const RADIUS_SELECT_SEL = 'select[data-id="search-radius-dropdown"]';
+const SEARCH_AREA_POLL_MS = 100;
+const SEARCH_AREA_WAIT_MS = 5000;
+const RADIUS_REQUEST_WAIT_MS = 10_000;
+
+function closeSearchArea(): void {
+  const dialog = document.querySelector<HTMLDialogElement>(SEARCH_AREA_DIALOG_SEL);
+  if (!dialog) return;
+  const close = dialog.querySelector<HTMLElement>('button.tds-modal-close');
+  if (close) close.click();
+  else dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
+
+// Set Tesla's search radius and wait for its request at that radius, so the
+// slider restore that follows sees bounds for the new results. `searchedRange`
+// reads the radius of Tesla's latest request (null until one is observed).
+async function applyRadius(target: number, searchedRange: () => number | null): Promise<boolean> {
+  // Tesla's first request has usually landed by now; waiting for it skips the
+  // dialog entirely when the stored radius already matches.
+  const initial = await pollWithTimeout(searchedRange, {
+    intervalMs: SLIDER_POLL_MS,
+    timeoutMs: RADIUS_REQUEST_WAIT_MS,
+  });
+  if (initial === target) return true;
+  const opener = await pollWithTimeout(
+    () => document.querySelector<HTMLElement>(SEARCH_AREA_OPEN_SEL),
+    { intervalMs: SLIDER_POLL_MS, timeoutMs: SLIDER_WAIT_MS },
+  );
+  if (!opener) return false;
+  opener.click();
+  const value = String(target);
+  let set = false;
+  try {
+    const select = await pollWithTimeout(
+      () => document.querySelector<HTMLSelectElement>(RADIUS_SELECT_SEL),
+      { intervalMs: SEARCH_AREA_POLL_MS, timeoutMs: SEARCH_AREA_WAIT_MS },
+    );
+    // A radius Tesla doesn't offer here (another market's units, say) fails
+    // rather than picking a neighbour.
+    if (select && Array.from(select.options).some((o) => o.value === value)) {
+      if (select.value !== value) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (setter) setter.call(select, value);
+        else select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      set = select.value === value;
+    }
+  } finally {
+    closeSearchArea();
+  }
+  if (!set) return false;
+  await pollWithTimeout(() => (searchedRange() === target ? true : null), {
+    intervalMs: SLIDER_POLL_MS,
+    timeoutMs: RADIUS_REQUEST_WAIT_MS,
+  });
+  return true;
+}
+
 type ApplyResult = { applied: RangeKey[]; failed: RangeKey[] };
 
 // Sequential on purpose — each write triggers a results refetch, and serial
@@ -429,10 +510,14 @@ async function applyRanges(ranges: SavedSearch['ranges']): Promise<ApplyResult> 
 
 const SEARCH_FETCH_TIMEOUT_MS = 15_000;
 const SEARCH_PAGE_PAUSE_MS = 300;
+// A reused tab can show a different search. Our fetches must never replace
+// Tesla's request for that page; also covers baseline fetches on visible pages.
+const ownSearchUrls = new Set<string>();
+const OWN_SEARCH_URL_LIMIT = 50;
 // After the request a view starts from, how long until its cards count as
-// rendered (tags appear, the first "seen" report goes out).
+// rendered (tags appear, the first view report goes out).
 const VIEW_SETTLE_MS = 1000;
-// Coalesces "seen" reports while infinite scroll renders more cards.
+// Coalesces view reports while infinite scroll renders more cards.
 const VIEW_REPORT_DEBOUNCE_MS = 1000;
 
 // The live slider values (not just user-set ones), for matching a captured
@@ -450,7 +535,13 @@ async function fetchInventoryJson(path: string): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEARCH_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(new URL(path, location.origin).href, {
+    const url = new URL(path, location.origin).href;
+    ownSearchUrls.delete(url);
+    ownSearchUrls.add(url);
+    if (ownSearchUrls.size > OWN_SEARCH_URL_LIMIT) {
+      ownSearchUrls.delete(ownSearchUrls.values().next().value!);
+    }
+    const res = await fetch(url, {
       cache: 'no-store',
       signal: controller.signal,
     });
@@ -489,7 +580,7 @@ export default defineContentScript({
     let searches: SavedSearches = await savedSearchesItem.getValue();
     let cars: SavedCars = await savedCarsItem.getValue();
     updateTrackButtons(cars);
-    let searchWatch: SearchWatch = await searchWatchItem.getValue();
+    let searchWatch: SearchWatch = validSearchWatch(await searchWatchItem.getValue());
     setSearchNewCounts(newCountsById(searchWatch));
     let scheduled = false;
 
@@ -651,25 +742,48 @@ export default defineContentScript({
 
     // ─── Saved searches ───
 
-    const reportRestore = (search: SavedSearch, result: ApplyResult) => {
+    // Latest Tesla inventory request by start time. A slow reply to an older
+    // request (filters since changed) must not replace a newer one.
+    let lastRequest: { request: InventoryRequest; startTime: number } | null = null;
+
+    // The page URL with the radius Tesla actually searched filled in when the
+    // URL has none, which is what saving, the panel and viewing compare
+    // against (see withSearchedRange).
+    // The radius of Tesla's latest request: what the page really searched.
+    const searchedRange = (): number | null =>
+      lastRequest ? requestRange(lastRequest.request) : null;
+
+    const pageSearchHref = (): string => withSearchedRange(location.href, searchedRange());
+
+    const renderPanelList = () => renderSearchList(searches, pageSearchHref(), currentPageRanges());
+
+    // `failed` names what couldn't be set ("search radius", "mileage", ...).
+    const reportRestore = (search: SavedSearch, failed: string[]) => {
       const label = searchLabelShort(search);
-      if (result.failed.length === 0) {
+      if (failed.length === 0) {
         setPanelStatus(`Applied "${label}".`, 'ok', 4000);
         return;
       }
-      const which = result.failed.map((k) => RANGE_KEY_LABELS[k]).join(', ');
-      setPanelStatus(`Applied "${label}", but couldn't set ${which}.`, 'error', 8000);
+      setPanelStatus(`Applied "${label}", but couldn't set ${failed.join(', ')}.`, 'error', 8000);
     };
 
-    // Sliders restore one at a time, so the page can pass through states that
-    // match some other saved search. Viewing (which marks cars seen) is paused
+    // The radius first (its refetch changes the sliders' data-driven bounds),
+    // then the sliders one at a time, so the page passes through states that
+    // match some other saved search. Viewing (which marks cars viewed) is paused
     // until the restore is done.
     let restoring = false;
-    const restoreRanges = async (ranges: SavedSearch['ranges']): Promise<ApplyResult> => {
+    const restoreSearch = async (search: SavedSearch): Promise<string[]> => {
       restoring = true;
       endView();
       try {
-        return await applyRanges(ranges);
+        const failed: string[] = [];
+        const radius = savedSearchRange(search);
+        if (radius !== null && !(await applyRadius(radius, searchedRange))) {
+          failed.push('search radius');
+        }
+        const sliders = await applyRanges(search.ranges ?? {});
+        failed.push(...sliders.failed.map((k) => RANGE_KEY_LABELS[k]));
+        return failed;
       } finally {
         restoring = false;
         evaluateView();
@@ -678,10 +792,11 @@ export default defineContentScript({
 
     const panelHandlers: SearchPanelHandlers = {
       onSave: async () => {
-        const view = captureView();
+        const href = pageSearchHref();
+        const view = captureView(href);
         if (!view) return { ok: false, reason: 'capture-failed' };
         const id = crypto.randomUUID().slice(0, 8);
-        const search = createSavedSearch(view, location.href, Date.now(), id);
+        const search = createSavedSearch(view, href, Date.now(), id);
         // Build from a fresh read so a save cannot overwrite a rename, delete,
         // or save that arrived since this content script's watch last fired.
         const current = await savedSearchesItem.getValue();
@@ -700,15 +815,16 @@ export default defineContentScript({
         // A failed write throws through to the panel's "Couldn't save" status.
         await savedSearchesItem.setValue(result.searches);
         searches = result.searches;
-        renderSearchList(searches, location.href, currentPageRanges());
+        renderPanelList();
         return { ok: true, label: searchLabelShort(search) };
       },
       onOpen: async (search) => {
-        // Same listing already loaded → just push the sliders, no navigation.
-        if (isSameSearchUrl(location.href, search.url)) {
+        // Same listing already loaded → just set the radius and sliders, no
+        // navigation.
+        if (isSameListing(location.href, search.url)) {
           setPanelStatus(`Applying "${searchLabelShort(search)}"…`, 'info');
-          reportRestore(search, await restoreRanges(search.ranges));
-          renderSearchList(searches, location.href, currentPageRanges());
+          reportRestore(search, await restoreSearch(search));
+          renderPanelList();
           return;
         }
         setPanelStatus(`Opening "${searchLabelShort(search)}"…`, 'info');
@@ -720,6 +836,11 @@ export default defineContentScript({
       onRename: async (id, name) => {
         const current = await savedSearchesItem.getValue();
         const next = renameSearch(current, id, name);
+        if (next !== current) await savedSearchesItem.setValue(next);
+      },
+      onAlerts: async (id, on) => {
+        const current = await savedSearchesItem.getValue();
+        const next = setSearchAlerts(current, id, on);
         if (next !== current) await savedSearchesItem.setValue(next);
       },
       onDelete: async (id) => {
@@ -736,29 +857,25 @@ export default defineContentScript({
         .catch(() => null)) as SavedSearch | null;
       if (!search || typeof search !== 'object' || typeof search.description !== 'string') return;
       setPanelStatus(`Restoring "${searchLabelShort(search)}"…`, 'info');
-      reportRestore(search, await restoreRanges(search.ranges ?? {}));
-      renderSearchList(searches, location.href, currentPageRanges());
+      reportRestore(search, await restoreSearch(search));
+      renderPanelList();
     };
 
     // ─── Saved searches: new matches ───
     //
     // While the page IS a saved search (URL and sliders match) and the tab is
     // visible, this page "views" it: Tesla's latest request is stored as that
-    // search's query, everything new or rendered is marked seen, and cards the
-    // shopper hadn't seen before get a "New" tag. A hidden tab — including the
+    // search's query, everything new or rendered is marked viewed, and cards the
+    // shopper hadn't viewed before get a "New" tag. A hidden tab — including the
     // worker's check tab — never views anything. The worker owns every write;
     // this side only reports.
-
-    // Latest Tesla inventory request by start time. A slow reply to an older
-    // request (filters since changed) must not replace a newer one.
-    let lastRequest: { request: InventoryRequest; startTime: number } | null = null;
 
     type SearchView = {
       id: string;
       request: InventoryRequest;
-      // The search's seen VINs when the view began; cards outside it are "New"
-      // for the rest of this page session. null = no baseline yet, no tags.
-      seenAtStart: Set<string> | null;
+      // Known keys excluding unviewed arrivals when the view began. Cards
+      // outside this snapshot stay "New" for this page session. null = no baseline.
+      knownAtStart: Set<string> | null;
       settled: boolean; // results for this request have had time to render
       reported: Set<string>;
       reportedOnce: boolean;
@@ -767,9 +884,9 @@ export default defineContentScript({
     let view: SearchView | null = null;
     let reportTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const renderedCardVins = (): string[] =>
+    const renderedCardKeys = (): string[] =>
       inventoryCards()
-        .map((article) => extractVin(article.getAttribute('data-id')))
+        .map((article) => carKeyFromDataId(article.getAttribute('data-id')))
         .filter((v): v is string => !!v);
 
     const clearNewTags = () => {
@@ -777,14 +894,14 @@ export default defineContentScript({
     };
 
     const applyNewTags = () => {
-      const seen = view?.settled ? view.seenAtStart : null;
-      if (!seen) {
+      const known = view?.settled ? view.knownAtStart : null;
+      if (!known) {
         clearNewTags();
         return;
       }
       for (const article of inventoryCards()) {
-        const vin = extractVin(article.getAttribute('data-id'));
-        article.classList.toggle('tih-new', !!vin && !seen.has(vin));
+        const key = carKeyFromDataId(article.getAttribute('data-id'));
+        article.classList.toggle('tih-new', !!key && !known.has(key));
       }
     };
 
@@ -799,12 +916,12 @@ export default defineContentScript({
     // carries the request even with no cards); later ones only for new cards.
     const reportView = async (v: SearchView) => {
       if (view !== v) return;
-      const fresh = renderedCardVins().filter((vin) => !v.reported.has(vin));
+      const fresh = renderedCardKeys().filter((key) => !v.reported.has(key));
       if (v.reportedOnce && fresh.length === 0) return;
       v.reportedOnce = true;
-      fresh.forEach((vin) => v.reported.add(vin));
+      fresh.forEach((key) => v.reported.add(key));
       const res = (await browser.runtime
-        .sendMessage({ type: 'tih:search-viewed', id: v.id, request: v.request, renderedVins: fresh })
+        .sendMessage({ type: 'tih:search-viewed', id: v.id, request: v.request, renderedKeys: fresh })
         .catch(() => null)) as { needsBaseline?: boolean } | null;
       if (!res?.needsBaseline || v.baselining || view !== v) return;
       // First view on this device: everything matching right now is the baseline.
@@ -828,11 +945,16 @@ export default defineContentScript({
 
     const startView = (id: string, request: InventoryRequest) => {
       endView();
-      const seen = searchWatch[id]?.seen;
+      const entry = searchWatch[id];
+      const known = entry?.known;
+      const knownAtStart = known ? new Set(Object.keys(known)) : null;
+      // Checks now remember arrivals immediately. They still need a tag until
+      // viewed, and this snapshot must survive the worker clearing newKeys.
+      for (const key of entry?.newKeys ?? []) knownAtStart?.delete(key);
       const v: SearchView = {
         id,
         request,
-        seenAtStart: seen ? new Set(Object.keys(seen)) : null,
+        knownAtStart,
         settled: false,
         reported: new Set(),
         reportedOnce: false,
@@ -841,7 +963,7 @@ export default defineContentScript({
       view = v;
       if (DEBUG) console.debug('[TIH] search view', { id, request });
       // Give the results of this request time to replace the previous cards, so
-      // neither the tags nor the "seen" report pick up the old ones.
+      // neither the tags nor the view report pick up the old ones.
       setTimeout(() => {
         if (view !== v) return;
         v.settled = true;
@@ -864,7 +986,8 @@ export default defineContentScript({
         return;
       }
       const pageRanges = currentPageRanges();
-      const search = searches.find((s) => isCurrentSearch(s, location.href, pageRanges));
+      const href = pageSearchHref();
+      const search = searches.find((s) => isCurrentSearch(s, href, pageRanges));
       if (!search) {
         endView();
         return;
@@ -881,11 +1004,12 @@ export default defineContentScript({
       scheduleViewReport();
     };
 
-    // Tesla's own requests, seen through resource timing. An observer (unlike
+    // Tesla's own requests, observed through resource timing. An observer (unlike
     // getEntriesByType) keeps receiving entries after the 250-entry timeline
     // buffer fills, which a long SPA session can reach.
     const requestObserver = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
+        if (ownSearchUrls.has(entry.name)) continue;
         const request = parseInventoryRequestUrl(entry.name);
         if (!request) continue;
         if (lastRequest && entry.startTime < lastRequest.startTime) continue;
@@ -908,7 +1032,7 @@ export default defineContentScript({
         // The saved-search pill lives on used AND new listing pages; nowhere else.
         if (isInventoryListingPath(path)) {
           mountSearchPanel(panelHandlers);
-          renderSearchList(searches, location.href, currentPageRanges());
+          renderPanelList();
           onSearchPage();
         } else {
           unmountSearchPanel();
@@ -970,14 +1094,14 @@ export default defineContentScript({
     // save on this page also lands here, which starts viewing the new search.
     savedSearchesItem.watch((next) => {
       searches = next;
-      renderSearchList(searches, location.href, currentPageRanges());
+      renderPanelList();
       evaluateView();
     });
 
     // New-match counts for the pill and rows, kept live as checks and views
     // land. A view in progress keeps its own start-of-view snapshot.
     searchWatchItem.watch((next) => {
-      searchWatch = next;
+      searchWatch = validSearchWatch(next);
       setSearchNewCounts(newCountsById(next));
     });
 
@@ -990,10 +1114,11 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((msg) => {
       const type = (msg as { type?: string } | null)?.type;
+      if (type === 'tih:search-ready') return Promise.resolve(true);
       if (type === 'tih:scrape') {
         return Promise.resolve(scrapeCar());
       }
-      // The worker's check tab: page through one saved search's results.
+      // The worker's created or reused tab: page through one search's results.
       if (type === 'tih:fetch-search') {
         const request = asInventoryRequest((msg as { request?: unknown }).request);
         if (!request) return Promise.resolve({ ok: false });

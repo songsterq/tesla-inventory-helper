@@ -1,3 +1,5 @@
+import { VIN_RE } from './vin';
+
 export type TeslaPlant = 'Fremont' | 'Austin' | 'Shanghai' | 'Berlin';
 export type TeslaModel =
   | 'Model S'
@@ -131,11 +133,9 @@ const DRIVETRAIN_BY_MODEL_AND_POS8: Record<TeslaModel, Record<string, TeslaDrive
 // NHTSA model-year letter codes for years 2010+ (skipping I, O, Q, U, Z and 0).
 const YEAR_CODES = 'ABCDEFGHJKLMNPRSTVWXY123456789';
 
-const VIN_REGEX = /^[A-HJ-NPR-Z0-9]{17}$/;
-
 export function isTeslaVin(s: string): boolean {
   if (s.length !== 17) return false;
-  if (!VIN_REGEX.test(s)) return false;
+  if (!VIN_RE.test(s)) return false;
   return TESLA_WMI_SET.has(s.slice(0, 3));
 }
 

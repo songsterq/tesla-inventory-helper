@@ -1,7 +1,9 @@
+import { isCarSummary, parseInventoryCar, type CarSummary } from './inventoryCar';
+import { LISTING_HASH_RE, VIN_RE } from './vin';
 import { RANGE_KEYS, type RangeKey, type SavedSearches } from './savedSearches';
 
-// "New matches" for saved searches: which cars match a search now that the
-// shopper hasn't seen on this device. All logic here is PURE (no `browser`/DOM;
+// "New matches" for saved searches: arrivals the shopper hasn't viewed on
+// this device. All logic here is PURE (no `browser`/DOM;
 // the fetch is injected) so it is unit-testable; the brittle parts (capturing
 // Tesla's request, the hidden check tab) stay at the edges.
 //
@@ -19,27 +21,25 @@ export const PAGE_SIZE = 24;
 // 5 pages = the first 120 cars in the search's own sort order. A broad search
 // (hundreds of matches) would otherwise mean megabytes per check.
 export const MAX_PAGES = 5;
-// Bounds per-search storage: VINs unobserved this long are forgotten, and the
+// Bounds per-search storage: car keys unobserved this long are forgotten, and the
 // set never exceeds the cap (oldest-observed dropped first).
-export const SEEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-export const SEEN_CAP = 300;
-
-const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/;
+export const KNOWN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const KNOWN_CAP = 300;
 
 // Tesla's request with the paging fields removed. `path` is kept rather than
 // assumed, in case a locale serves the endpoint under a different prefix.
 export type InventoryRequest = { path: string; body: Record<string, unknown> };
 
-export type SearchResults = { total: number; vins: string[] };
+export type SearchResults = { total: number; cars: CarSummary[] };
 
 export type SearchWatchEntry = {
   request: InventoryRequest;
   capturedAt: number;
-  // VIN → last time it was observed (ms). null until the baseline is taken, so
+  // Car key → last time it was observed (ms). null until the baseline is taken, so
   // a search's existing matches are never reported as new.
-  seen: Record<string, number> | null;
-  newVins: string[]; // current matches not in `seen`, as of the last check
-  badgeAckedVins: string[]; // the part of newVins the popup already acknowledged
+  known: Record<string, number> | null;
+  newKeys: string[]; // arrivals not yet viewed
+  badgeAckedKeys: string[]; // the part of newKeys the popup already acknowledged
   total: number | null; // total_matches_found at the last observation
   truncated: boolean; // total exceeded MAX_PAGES * PAGE_SIZE
   lastCheckedAt: number | null;
@@ -107,15 +107,53 @@ export function inventoryPageUrl(request: InventoryRequest, offset: number): str
   return `${request.path}?query=${encodeURIComponent(JSON.stringify(query))}`;
 }
 
-export function normalizeVins(list: unknown): string[] {
+export function normalizeKeys(list: unknown): string[] {
   if (!Array.isArray(list)) return [];
   const out = new Set<string>();
   for (const v of list) {
     if (typeof v !== 'string') continue;
-    const vin = v.trim().toUpperCase();
-    if (VIN_RE.test(vin)) out.add(vin);
+    const key = v.trim();
+    if (VIN_RE.test(key.toUpperCase())) out.add(key.toUpperCase());
+    else if (LISTING_HASH_RE.test(key)) out.add(key);
   }
   return [...out];
+}
+
+const isKey = (x: unknown): x is string =>
+  typeof x === 'string' && (VIN_RE.test(x) || LISTING_HASH_RE.test(x));
+const isFiniteNumber = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+
+export function isSearchWatchEntry(x: unknown): x is SearchWatchEntry {
+  if (!isRecord(x) || !asInventoryRequest(x.request) || !isFiniteNumber(x.capturedAt)) return false;
+  if (
+    x.known !== null && (
+      !isRecord(x.known) ||
+      !Object.entries(x.known).every(([key, at]) => isKey(key) && isFiniteNumber(at))
+    )
+  ) return false;
+  return (
+    Array.isArray(x.newKeys) && x.newKeys.every(isKey) &&
+    Array.isArray(x.badgeAckedKeys) && x.badgeAckedKeys.every(isKey) &&
+    (x.total === null || (isFiniteNumber(x.total) && Number.isInteger(x.total) && x.total >= 0)) &&
+    typeof x.truncated === 'boolean' &&
+    (x.lastCheckedAt === null || isFiniteNumber(x.lastCheckedAt))
+  );
+}
+
+// Pre-release state may use the old VIN-only shape. All readers share this
+// filter; preserving a clean watch's reference lets the writer skip no-ops.
+export function validSearchWatch(raw: unknown): SearchWatch {
+  if (!isRecord(raw)) return {};
+  const entries = Object.entries(raw);
+  const valid = entries.filter((pair): pair is [string, SearchWatchEntry] => isSearchWatchEntry(pair[1]));
+  return valid.length === entries.length ? (raw as SearchWatch) : Object.fromEntries(valid);
+}
+
+// The same validation covers baseline messages and hidden-tab check replies.
+export function asSearchResults(x: unknown): (SearchResults & { truncated: boolean }) | null {
+  if (!isRecord(x) || !isFiniteNumber(x.total) || !Number.isInteger(x.total) || x.total < 0) return null;
+  if (!Array.isArray(x.cars) || !x.cars.every(isCarSummary) || typeof x.truncated !== 'boolean') return null;
+  return { total: x.total, cars: x.cars, truncated: x.truncated };
 }
 
 // One page of the response. Null on any unexpected shape — a format change
@@ -131,8 +169,14 @@ export function parseInventoryResponse(json: unknown): SearchResults | null {
         : NaN;
   if (!Number.isInteger(total) || total < 0) return null;
   const { results } = json;
-  if (!Array.isArray(results)) return total === 0 ? { total, vins: [] } : null;
-  return { total, vins: normalizeVins(results.map((r) => (isRecord(r) ? r.VIN : null))) };
+  if (!Array.isArray(results)) return total === 0 ? { total, cars: [] } : null;
+  const cars: CarSummary[] = [];
+  for (const record of results) {
+    const car = parseInventoryCar(record);
+    if (!car) return null;
+    cars.push(car);
+  }
+  return { total, cars };
 }
 
 export function pagesToFetch(total: number): number {
@@ -145,7 +189,7 @@ export type CollectOptions = {
 };
 
 // Page through a search's results. Any failed or malformed page fails the
-// whole collection: a partial VIN set would make the missing cars look gone
+// whole collection: a partial car set would make the missing cars look gone
 // and then "new" again on the next complete check.
 export async function collectSearchResults(
   request: InventoryRequest,
@@ -154,15 +198,15 @@ export async function collectSearchResults(
 ): Promise<(SearchResults & { truncated: boolean }) | null> {
   const first = parseInventoryResponse(await fetchJson(inventoryPageUrl(request, 0)));
   if (!first) return null;
-  const vins = new Set(first.vins);
+  const cars = new Map(first.cars.map((car) => [car.key, car]));
   const pages = pagesToFetch(first.total);
   for (let page = 1; page < pages; page++) {
     await options.sleep(options.pauseMs);
     const next = parseInventoryResponse(await fetchJson(inventoryPageUrl(request, page * PAGE_SIZE)));
     if (!next) return null;
-    for (const v of next.vins) vins.add(v);
+    for (const car of next.cars) if (!cars.has(car.key)) cars.set(car.key, car);
   }
-  return { total: first.total, vins: [...vins], truncated: first.total > MAX_PAGES * PAGE_SIZE };
+  return { total: first.total, cars: [...cars.values()], truncated: first.total > MAX_PAGES * PAGE_SIZE };
 }
 
 // "350,900" or [2020, 2021, 2026] → [min, max]; null when unreadable.
@@ -183,6 +227,16 @@ function requestSlider(query: Record<string, unknown>, key: RangeKey): [number, 
   return readPair(query[key]);
 }
 
+// The radius the request searched, in the listing's distance unit; null when
+// absent or unreadable. Tesla runs its own stored radius whatever the URL says,
+// so this is the radius the page really shows (see withSearchedRange).
+export function requestRange(request: InventoryRequest): number | null {
+  const query = isRecord(request.body.query) ? request.body.query : {};
+  const raw = query.range;
+  const range = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw;
+  return typeof range === 'number' && Number.isFinite(range) && range >= 0 ? range : null;
+}
+
 // Does this request reflect the sliders on screen? Guards attribution: a reply
 // to a request made before the user moved a slider must not be stored for the
 // search the page has since become. A slider missing on either side can't be
@@ -198,15 +252,15 @@ export function requestSlidersMatch(request: InventoryRequest, page: SliderValue
   return true;
 }
 
-// ─── State transitions (each returns a new entry) ───
+// ─── State transitions ───
 
 export function createEntry(request: InventoryRequest, now: number): SearchWatchEntry {
   return {
     request,
     capturedAt: now,
-    seen: null,
-    newVins: [],
-    badgeAckedVins: [],
+    known: null,
+    newKeys: [],
+    badgeAckedKeys: [],
     total: null,
     truncated: false,
     lastCheckedAt: null,
@@ -226,10 +280,16 @@ export function withRequest(
   return { ...entry, request, capturedAt: now };
 }
 
-export function pruneSeen(seen: Record<string, number>, now: number): Record<string, number> {
-  const fresh = Object.entries(seen).filter(([, at]) => now - at <= SEEN_TTL_MS);
-  fresh.sort((a, b) => b[1] - a[1]);
-  return Object.fromEntries(fresh.slice(0, SEEN_CAP));
+export function pruneKnown(
+  known: Record<string, number>,
+  now: number,
+  current: Set<string> = new Set(),
+): Record<string, number> {
+  const fresh = Object.entries(known).filter(([, at]) => now - at <= KNOWN_TTL_MS);
+  // A check can share a millisecond with the preceding view/check. Keep its
+  // current results ahead of absent keys when those timestamps tie at the cap.
+  fresh.sort((a, b) => b[1] - a[1] || Number(current.has(b[0])) - Number(current.has(a[0])));
+  return Object.fromEntries(fresh.slice(0, KNOWN_CAP));
 }
 
 export function withBaseline(
@@ -239,9 +299,9 @@ export function withBaseline(
 ): SearchWatchEntry {
   return {
     ...entry,
-    seen: pruneSeen(Object.fromEntries(results.vins.map((v) => [v, now])), now),
-    newVins: [],
-    badgeAckedVins: [],
+    known: pruneKnown(Object.fromEntries(results.cars.map((car) => [car.key, now])), now),
+    newKeys: [],
+    badgeAckedKeys: [],
     total: results.total,
     truncated: results.truncated ?? false,
     lastCheckedAt: now,
@@ -252,74 +312,87 @@ export function withCheckResult(
   entry: SearchWatchEntry,
   results: SearchResults & { truncated?: boolean },
   now: number,
-): SearchWatchEntry {
-  if (entry.seen === null) return withBaseline(entry, results, now);
-  const prior = entry.seen;
-  const seen = { ...prior };
-  for (const v of results.vins) if (v in seen) seen[v] = now;
-  // Recomputed from scratch each check: a new car that has since gone is no
-  // longer news, and one still unseen stays new until the search is opened.
-  const newVins = results.vins.filter((v) => !(v in prior));
-  const acked = new Set(entry.badgeAckedVins);
+): { entry: SearchWatchEntry; arrivals: string[] } {
+  if (entry.known === null) return { entry: withBaseline(entry, results, now), arrivals: [] };
+  const keys = new Set(results.cars.map((car) => car.key));
+  const prior = entry.known;
+  const arrivals = [...keys].filter((key) => !(key in prior));
+  const known = { ...prior };
+  for (const key of keys) known[key] = now;
+  const truncated = results.truncated ?? false;
+  // Only two complete checks can establish absence. A truncated page set says
+  // nothing about cars outside it, so it also interrupts the two-miss sequence.
+  if (!truncated && !entry.truncated && entry.lastCheckedAt !== null) {
+    for (const [key, at] of Object.entries(known)) {
+      if (!keys.has(key) && at < entry.lastCheckedAt) delete known[key];
+    }
+  }
+  const pruned = pruneKnown(known, now, keys);
+  const newKeys = [...new Set([...entry.newKeys, ...arrivals])].filter((key) => key in pruned);
+  const news = new Set(newKeys);
   return {
-    ...entry,
-    seen: pruneSeen(seen, now),
-    newVins,
-    badgeAckedVins: newVins.filter((v) => acked.has(v)),
-    total: results.total,
-    truncated: results.truncated ?? false,
-    lastCheckedAt: now,
+    entry: {
+      ...entry,
+      known: pruned,
+      newKeys,
+      badgeAckedKeys: entry.badgeAckedKeys.filter((key) => news.has(key)),
+      total: results.total,
+      truncated,
+      lastCheckedAt: now,
+    },
+    arrivals,
   };
 }
 
-// The search is on screen: everything new is now seen, plus whatever the page
+// The search is on screen: everything new is now viewed, plus whatever the page
 // rendered (which can include cars that arrived after the last check). Without
 // a baseline there is nothing to mark against yet. Returns the same entry when
 // there is nothing to mark, so the frequent re-reports while a page is open
 // (scrolling loads more cards) don't each cost a storage write.
 export function withViewed(
   entry: SearchWatchEntry,
-  renderedVins: string[],
+  renderedKeys: string[],
   now: number,
 ): SearchWatchEntry {
-  if (entry.seen === null) return entry;
-  const prior = entry.seen;
-  if (entry.newVins.length === 0 && renderedVins.every((v) => v in prior)) return entry;
-  const seen = { ...prior };
-  for (const v of entry.newVins) seen[v] = now;
-  for (const v of renderedVins) seen[v] = now;
-  return { ...entry, seen: pruneSeen(seen, now), newVins: [], badgeAckedVins: [] };
+  if (entry.known === null) return entry;
+  const prior = entry.known;
+  if (entry.newKeys.length === 0 && renderedKeys.every((v) => v in prior)) return entry;
+  const known = { ...prior };
+  for (const v of entry.newKeys) known[v] = now;
+  for (const v of renderedKeys) known[v] = now;
+  return { ...entry, known: pruneKnown(known, now), newKeys: [], badgeAckedKeys: [] };
 }
 
 // Opening the popup clears the toolbar badge; the row chips stay.
 export function withBadgeAcked(entry: SearchWatchEntry): SearchWatchEntry {
-  if (entry.badgeAckedVins.length === entry.newVins.length) return entry;
-  return { ...entry, badgeAckedVins: [...entry.newVins] };
+  if (entry.badgeAckedKeys.length === entry.newKeys.length) return entry;
+  return { ...entry, badgeAckedKeys: [...entry.newKeys] };
 }
 
 export function unackedCount(entry: SearchWatchEntry): number {
-  const acked = new Set(entry.badgeAckedVins);
-  return entry.newVins.filter((v) => !acked.has(v)).length;
+  const acked = new Set(entry.badgeAckedKeys);
+  return entry.newKeys.filter((v) => !acked.has(v)).length;
 }
 
 // Searches deleted (on any device) take their state with them. Returns the same
 // reference when nothing changed so callers can skip the write.
-export function pruneOrphans(watch: SearchWatch, searches: SavedSearches): SearchWatch {
+export function pruneOrphans(raw: unknown, searches: SavedSearches): SearchWatch {
+  const watch = validSearchWatch(raw);
   const ids = new Set(searches.map((s) => s.id));
   const kept = Object.entries(watch).filter(([id]) => ids.has(id));
   return kept.length === Object.keys(watch).length ? watch : Object.fromEntries(kept);
 }
 
-export function newCountsById(watch: SearchWatch): Record<string, number> {
+export function newCountsById(raw: unknown): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [id, entry] of Object.entries(watch)) {
-    if (entry.newVins.length > 0) out[id] = entry.newVins.length;
+  for (const [id, entry] of Object.entries(validSearchWatch(raw))) {
+    if (entry.newKeys.length > 0) out[id] = entry.newKeys.length;
   }
   return out;
 }
 
-export function unackedTotal(watch: SearchWatch): number {
-  return Object.values(watch).reduce((sum, e) => sum + unackedCount(e), 0);
+export function unackedTotal(raw: unknown): number {
+  return Object.values(validSearchWatch(raw)).reduce((sum, e) => sum + unackedCount(e), 0);
 }
 
 // ─── Toolbar badge ───

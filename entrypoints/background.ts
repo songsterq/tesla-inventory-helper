@@ -7,10 +7,12 @@ import {
   pendingSearchesItem,
   savedCarsItem,
   savedSearchesItem,
+  searchAlertMinutesItem,
   searchWatchItem,
   type PendingSearch,
 } from '../src/storage';
-import type { SavedSearch } from '../src/savedSearches';
+import type { CarSummary } from '../src/inventoryCar';
+import { anySearchAlerts, orderUrl, searchLabel, type SavedSearch } from '../src/savedSearches';
 import {
   applyCheckResult,
   changedCount,
@@ -20,10 +22,12 @@ import {
 } from '../src/savedCars';
 import {
   asInventoryRequest,
+  asSearchResults,
   composeBadge,
-  normalizeVins,
+  normalizeKeys,
   pruneOrphans,
   unackedTotal,
+  validSearchWatch,
   withBadgeAcked,
   withBaseline,
   withCheckResult,
@@ -34,10 +38,10 @@ import {
   type SearchWatch,
 } from '../src/searchWatch';
 import { LEGACY_SYNC_KEYS, planSyncToLocal } from '../src/syncMigration';
-import { planAlarm } from '../src/autoCheck';
+import { planAlarm, planSearchAlertAlarm } from '../src/autoCheck';
 import { isSoldRedirect } from '../src/vin';
 import { pollWithTimeout } from '../src/asyncPoll';
-import { buildChangeNotification, toRunChange, type ChangeNotification, type RunChange } from '../src/notify';
+import { buildChangeNotification, buildSearchAlertNotifications, toRunChange, type ChangeNotification, type RunChange } from '../src/notify';
 
 const SCRAPE_INTERVAL_MS = 750;
 const PER_CAR_TIMEOUT_MS = 30_000;
@@ -47,6 +51,10 @@ const PER_CAR_TIMEOUT_MS = 30_000;
 const SEARCH_TAB_READY_MS = 30_000;
 const KEEPALIVE_MS = 20_000;
 const AUTO_CHECK_ALARM = 'tih:auto-check';
+const SEARCH_ALERT_ALARM = 'tih:search-alerts';
+type CheckScope = 'all' | 'alerts';
+type CheckRun = { scope: CheckScope; source: 'manual' | 'alarm' };
+let pendingAll = false;
 // A queued saved-search restore that no content script collected within this
 // window is stale (the navigation failed or landed elsewhere) and is dropped.
 const PENDING_SEARCH_TTL_MS = 120_000;
@@ -82,6 +90,7 @@ export default defineBackground(() => {
     void updateBadge();
     void savedSearchesItem.getValue().then(pruneSearchWatch);
     void reconcileAlarm();
+    void reconcileSearchAlertAlarm();
   });
 
   // Keep the badge in sync with the watchlist and saved-search news, even after
@@ -90,7 +99,11 @@ export default defineBackground(() => {
   searchWatchItem.watch(() => void updateBadge());
 
   // A deleted search takes its new-match state with it.
-  savedSearchesItem.watch((searches) => void pruneSearchWatch(searches));
+  savedSearchesItem.watch((searches) => {
+    void pruneSearchWatch(searches);
+    void reconcileSearchAlertAlarm();
+  });
+  searchAlertMinutesItem.watch(() => void reconcileSearchAlertAlarm());
 
   // Reconcile the auto-check alarm on startup and whenever either the frequency
   // or the anchor hour changes. Both are inputs to the same schedule, so a change
@@ -103,15 +116,16 @@ export default defineBackground(() => {
   // created at an arbitrary wall-clock time. onInstalled is the one event Chrome
   // guarantees fires on update — it forces the worker to start and re-anchor the
   // schedule to 9AM promptly, rather than waiting for the next incidental wake.
-  browser.runtime.onInstalled.addListener(() => void storageReady.then(reconcileAlarm));
+  browser.runtime.onInstalled.addListener(() => {
+    void storageReady.then(reconcileAlarm);
+    void reconcileSearchAlertAlarm();
+  });
 
-  // Fire an automatic run when the alarm elapses — but never pile onto a run that
-  // is already going, and skip the no-op wake when there is nothing to check.
+  // Preserve a due watchlist check while another run owns the runner. Fast
+  // search-only alarms can wait for their next tick instead of building a queue.
   browser.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name !== AUTO_CHECK_ALARM || runState.running) return;
-    void storageReady.then(hasAnythingToCheck).then((yes) => {
-      if (yes && !runState.running) void runCheck('alarm');
-    });
+    if (alarm.name === AUTO_CHECK_ALARM) void startAlarmRun('all');
+    else if (alarm.name === SEARCH_ALERT_ALARM) void startAlarmRun('alerts');
   });
 
   browser.notifications.onClicked.addListener(
@@ -140,7 +154,7 @@ function handleMessage(type: string, msg: unknown, senderTabId: number | undefin
   }
   if (type === 'tih:check-now') {
     if (runState.running) return { started: false, reason: 'busy' };
-    void runCheck('manual');
+    void runCheck({ scope: 'all', source: 'manual' });
     return { started: true };
   }
   if (type === 'tih:check-progress') return { ...runState };
@@ -275,6 +289,38 @@ async function reconcileAlarm(): Promise<void> {
   browser.alarms.create(AUTO_CHECK_ALARM, plan);
 }
 
+// Serialize reconciliations so simultaneous startup/storage events cannot both
+// see a missing alarm and reset it. Renames must leave the existing timer alone.
+let searchAlarmChain: Promise<void> = Promise.resolve();
+
+function reconcileSearchAlertAlarm(): Promise<void> {
+  searchAlarmChain = searchAlarmChain.then(async () => {
+    await storageReady;
+    const [minutes, searches] = await Promise.all([
+      searchAlertMinutesItem.getValue(), savedSearchesItem.getValue(),
+    ]);
+    const plan = planSearchAlertAlarm(minutes, anySearchAlerts(searches));
+    if ('clear' in plan) {
+      await browser.alarms.clear(SEARCH_ALERT_ALARM);
+      return;
+    }
+    const existing = await browser.alarms.get(SEARCH_ALERT_ALARM);
+    if (existing?.periodInMinutes !== plan.periodInMinutes) {
+      await browser.alarms.create(SEARCH_ALERT_ALARM, plan);
+    }
+  }).catch(() => {});
+  return searchAlarmChain;
+}
+
+async function startAlarmRun(scope: CheckScope): Promise<void> {
+  await storageReady;
+  if (runState.running) {
+    if (scope === 'all') pendingAll = true;
+    return;
+  }
+  if (await hasAnythingToCheck(scope)) await runCheck({ scope, source: 'alarm' });
+}
+
 // One badge for both features: watchlist changes plus unacknowledged new
 // search matches; see composeBadge for the color and tooltip rules.
 async function updateBadge(): Promise<void> {
@@ -288,18 +334,24 @@ async function updateBadge(): Promise<void> {
 
 // Check every saved car (one background tab each: scrape, diff vs the snapshot,
 // persist after every car so progress survives a mid-run worker termination),
-// then every saved search with a captured request (one shared hidden tab).
-async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
+// then the scope's captured searches (one shared Tesla tab). Alert runs skip cars.
+async function runCheck({ scope, source }: CheckRun): Promise<void> {
+  // The eligibility read can race another alarm or a manual check.
+  if (runState.running) {
+    if (scope === 'all' && source === 'alarm') pendingAll = true;
+    return;
+  }
   runState.running = true;
   runState.done = 0;
+  runState.total = 0;
   runState.currentVin = null;
   const keepAlive = setInterval(() => void browser.runtime.getPlatformInfo().catch(() => {}), KEEPALIVE_MS);
   const openTabs = new Set<number>();
   const changes: RunChange[] = [];
 
   try {
-    const cars = await savedCarsItem.getValue();
-    const searchTargets = await searchCheckTargets();
+    const cars = scope === 'all' ? await savedCarsItem.getValue() : [];
+    const searchTargets = await searchCheckTargets(scope);
     runState.total = cars.length + searchTargets.length;
 
     for (const car of cars) {
@@ -337,17 +389,25 @@ async function runCheck(source: 'alarm' | 'manual'): Promise<void> {
     }
 
     // Watchlist notifications go out before the search phase so they aren't
-    // held up by it. New search matches never notify; the badge carries them.
+    // held up by it.
     if (source === 'alarm') await notifyChanges(changes);
 
     runState.currentVin = null;
-    await checkSearches(searchTargets, openTabs);
+    const arrivals = await checkSearches(searchTargets, openTabs);
+    if (source === 'alarm') await notifySearchArrivals(arrivals);
   } finally {
     for (const id of openTabs) await browser.tabs.remove(id).catch(() => {});
     clearInterval(keepAlive);
-    runState.running = false;
-    runState.currentVin = null;
-    await updateBadge();
+    try {
+      await updateBadge();
+    } finally {
+      runState.running = false;
+      runState.currentVin = null;
+      if (pendingAll) {
+        pendingAll = false;
+        void startAlarmRun('all');
+      }
+    }
   }
 }
 
@@ -368,7 +428,7 @@ function updateSearchWatch<T>(
 ): Promise<T> {
   const run = watchChain.then(async () => {
     const current = await searchWatchItem.getValue();
-    const { watch, result } = fn(current);
+    const { watch, result } = fn(validSearchWatch(current));
     if (watch !== current) await searchWatchItem.setValue(watch);
     return result;
   });
@@ -387,20 +447,22 @@ type SearchTarget = { id: string; url: string; request: InventoryRequest };
 
 // Searches with a captured request on this device. A search saved elsewhere and
 // never opened here has none yet, and is skipped until it is.
-async function searchCheckTargets(): Promise<SearchTarget[]> {
+async function searchCheckTargets(scope: CheckScope): Promise<SearchTarget[]> {
   const [searches, watch] = await Promise.all([
     savedSearchesItem.getValue(),
     searchWatchItem.getValue(),
   ]);
+  const valid = validSearchWatch(watch);
   return searches.flatMap((s) => {
-    const entry = watch[s.id];
+    if (scope === 'alerts' && s.alerts !== true) return [];
+    const entry = valid[s.id];
     return entry ? [{ id: s.id, url: s.url, request: entry.request }] : [];
   });
 }
 
-async function hasAnythingToCheck(): Promise<boolean> {
-  if ((await savedCarsItem.getValue()).length > 0) return true;
-  return (await searchCheckTargets()).length > 0;
+async function hasAnythingToCheck(scope: CheckScope): Promise<boolean> {
+  if (scope === 'all' && (await savedCarsItem.getValue()).length > 0) return true;
+  return (await searchCheckTargets(scope)).length > 0;
 }
 
 // The hidden tab is only a vehicle for same-origin requests, so load the bare
@@ -414,41 +476,70 @@ function checkTabUrl(searchUrl: string): string {
   }
 }
 
-async function checkSearches(targets: SearchTarget[], openTabs: Set<number>): Promise<void> {
+async function checkSearches(
+  targets: SearchTarget[],
+  openTabs: Set<number>,
+): Promise<Record<string, CarSummary[]>> {
+  const perSearch: Record<string, CarSummary[]> = {};
   const first = targets[0];
-  if (!first) return;
+  if (!first) return perSearch;
   let tabId: number | undefined;
   try {
-    const tab = await browser.tabs.create({ url: checkTabUrl(first.url), active: false });
-    tabId = tab.id;
-    if (tabId !== undefined) openTabs.add(tabId);
+    // Keep these patterns in step with entrypoints/content/index.ts. Never
+    // navigate or close an existing tab: it may be the shopper's active page.
+    const tabs = await browser.tabs.query({ url: [
+      'https://www.tesla.com/inventory/*',
+      'https://www.tesla.com/*/inventory/*',
+      'https://www.tesla.com/*/order/*',
+    ] }).catch(() => []);
+    const ready = tabs
+      .filter((tab) => tab.status === 'complete' && !tab.discarded && tab.id !== undefined)
+      .sort((a, b) => Number(a.active) - Number(b.active));
+    // Tabs left open across an extension update can match the URL but have no
+    // live content script. Probe without fetching or disturbing their page.
+    for (const tab of ready) {
+      const responds = await browser.tabs.sendMessage(tab.id!, { type: 'tih:search-ready' }).catch(() => false);
+      if (responds === true) {
+        tabId = tab.id;
+        break;
+      }
+    }
+    if (tabId === undefined) {
+      const tab = await browser.tabs.create({ url: checkTabUrl(first.url), active: false }).catch(() => null);
+      tabId = tab?.id;
+      if (tabId !== undefined) openTabs.add(tabId);
+    }
     for (const target of targets) {
       const results = tabId === undefined ? null : await fetchSearchInTab(tabId, target.request);
       // A failed fetch leaves the entry untouched — never a fabricated change.
       if (results) {
-        await updateSearchWatch((watch) => {
+        const arrivals = await updateSearchWatch((watch) => {
           const entry = watch[target.id];
-          if (!entry) return { watch, result: undefined }; // deleted mid-run
+          if (!entry) return { watch, result: [] as string[] }; // deleted mid-run
+          const checked = withCheckResult(entry, results, Date.now());
           return {
-            watch: { ...watch, [target.id]: withCheckResult(entry, results, Date.now()) },
-            result: undefined,
+            watch: { ...watch, [target.id]: checked.entry },
+            result: checked.arrivals,
           };
         });
+        const keys = new Set(arrivals);
+        perSearch[target.id] = results.cars.filter((car) => keys.has(car.key));
       }
       runState.done++;
     }
   } catch {
-    // Tab creation failed: every search keeps its previous state.
+    // An orchestration/storage failure leaves unchecked searches untouched.
   } finally {
-    if (tabId !== undefined) {
+    if (tabId !== undefined && openTabs.has(tabId)) {
       openTabs.delete(tabId);
       await browser.tabs.remove(tabId).catch(() => {});
     }
   }
+  return perSearch;
 }
 
 type FetchSearchReply =
-  | { ok: true; total: number; vins: string[]; truncated: boolean }
+  | { ok: true; total: number; cars: CarSummary[]; truncated: boolean }
   | { ok: false };
 
 // Retries only until the tab's content script answers; its answer (success or
@@ -466,15 +557,7 @@ async function fetchSearchInTab(
     },
     { intervalMs: SCRAPE_INTERVAL_MS, timeoutMs: SEARCH_TAB_READY_MS },
   );
-  return reply?.ok ? asResults(reply) : null;
-}
-
-// Validate results that crossed a message boundary.
-function asResults(x: unknown): (SearchResults & { truncated: boolean }) | null {
-  const r = x as { total?: unknown; vins?: unknown; truncated?: unknown } | null;
-  if (!r || typeof r.total !== 'number' || !Number.isInteger(r.total) || r.total < 0) return null;
-  if (!Array.isArray(r.vins)) return null;
-  return { total: r.total, vins: normalizeVins(r.vins), truncated: r.truncated === true };
+  return reply?.ok ? asSearchResults(reply) : null;
 }
 
 // Only state for a search that exists: an id from a stale page must not
@@ -485,28 +568,28 @@ async function savedSearchId(id: unknown): Promise<string | null> {
 }
 
 // The shopper has a saved search on screen: store Tesla's latest request for it
-// and mark what's new or rendered as seen. Tells the page whether it still has
+// and mark what's new or rendered as viewed. Tells the page whether it still has
 // to take the baseline.
 async function onSearchViewed(msg: unknown): Promise<{ needsBaseline: boolean }> {
-  const { id: rawId, request: raw, renderedVins } = msg as {
+  const { id: rawId, request: raw, renderedKeys } = msg as {
     id?: unknown;
     request?: unknown;
-    renderedVins?: unknown;
+    renderedKeys?: unknown;
   };
   const request = asInventoryRequest(raw);
   const id = request ? await savedSearchId(rawId) : null;
   if (!request || !id) return { needsBaseline: false };
-  const rendered = normalizeVins(renderedVins);
+  const rendered = normalizeKeys(renderedKeys);
   return updateSearchWatch((watch) => {
     const now = Date.now();
     const entry = withViewed(withRequest(watch[id], request, now), rendered, now);
     const next = entry === watch[id] ? watch : { ...watch, [id]: entry };
-    return { watch: next, result: { needsBaseline: entry.seen === null } };
+    return { watch: next, result: { needsBaseline: entry.known === null } };
   });
 }
 
 // The page fetched everything the search matches. With no baseline yet this is
-// the baseline; otherwise the shopper is looking at it, so it all counts as seen.
+// the baseline; otherwise the shopper is looking at it, so it all counts as viewed.
 async function onSearchBaseline(msg: unknown): Promise<{ ok: boolean }> {
   const { id: rawId, request: raw, results: rawResults } = msg as {
     id?: unknown;
@@ -514,14 +597,16 @@ async function onSearchBaseline(msg: unknown): Promise<{ ok: boolean }> {
     results?: unknown;
   };
   const request = asInventoryRequest(raw);
-  const results = asResults(rawResults);
+  const results = asSearchResults(rawResults);
   const id = request && results ? await savedSearchId(rawId) : null;
   if (!request || !results || !id) return { ok: false };
   await updateSearchWatch((watch) => {
     const now = Date.now();
     const withReq = withRequest(watch[id], request, now);
     const entry =
-      withReq.seen === null ? withBaseline(withReq, results, now) : withViewed(withReq, results.vins, now);
+      withReq.known === null
+        ? withBaseline(withReq, results, now)
+        : withViewed(withReq, results.cars.map((car) => car.key), now);
     return { watch: entry === watch[id] ? watch : { ...watch, [id]: entry }, result: undefined };
   });
   return { ok: true };
@@ -558,10 +643,51 @@ async function notifyChanges(changes: RunChange[]): Promise<void> {
     .catch(() => {});
 }
 
+async function notifySearchArrivals(arrivals: Record<string, CarSummary[]>): Promise<void> {
+  // Read the opt-in again: a search removed or silenced during the run stays quiet.
+  const searches = await savedSearchesItem.getValue().catch(() => []);
+  const notifications = buildSearchAlertNotifications(searches.map((search) => ({
+    search, label: searchLabel(search), cars: arrivals[search.id] ?? [],
+  })));
+  for (const n of notifications) {
+    try {
+      await browser.notifications.create(n.id, {
+        type: 'basic',
+        iconUrl: browser.runtime.getURL('/icon/128.png'),
+        title: n.title,
+        message: n.message,
+        ...(n.contextMessage ? { contextMessage: n.contextMessage } : {}),
+      });
+    } catch { /* Notifications are best-effort; other searches still notify. */ }
+  }
+}
+
 // Route a notification click. Single-car ids deep-link to the listing (or the
 // watchlist if the car was removed since); the summary opens the watchlist.
 async function handleNotificationClick(id: string): Promise<void> {
   await browser.notifications.clear(id).catch(() => {});
+  // Search ids are eight UUID hex characters; split at the colon boundary,
+  // never underscores, which are part of Tesla's masked order IDs.
+  const match = /^tih:match:([^:]+):(.+)$/.exec(id);
+  if (match) {
+    try {
+      const search = (await savedSearchesItem.getValue()).find((s) => s.id === match[1]);
+      const url = search ? orderUrl(search, match[2]!) : null;
+      if (url) {
+        await browser.tabs.create({ url });
+        return;
+      }
+    } catch { /* Fall back to the popup if the saved search cannot be opened. */ }
+    await openWatchlistWindow();
+    return;
+  }
+  if (id.startsWith('tih:matches:')) {
+    try {
+      if ((await openSavedSearch(id.slice('tih:matches:'.length), true, undefined)).ok) return;
+    } catch { /* Fall back to the popup if storage or navigation fails. */ }
+    await openWatchlistWindow();
+    return;
+  }
   const CAR_PREFIX = 'tih:car:';
   if (id.startsWith(CAR_PREFIX)) {
     const vin = id.slice(CAR_PREFIX.length);

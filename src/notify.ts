@@ -1,4 +1,6 @@
 import type { SavedCar } from './savedCars';
+import type { CarSummary } from './inventoryCar';
+import { distanceUnitFromPath, orderUrl, type SavedSearch } from './savedSearches';
 import { formatCarName, formatCarSubLine, formatPrice, priceSymbol } from './format';
 
 // A qualifying change observed during a single check run. Only price drops and
@@ -10,7 +12,7 @@ export type RunChange = {
 };
 
 // Where a click on the notification should take the user.
-export type NotifyTarget = { kind: 'url'; url: string } | { kind: 'popup' };
+export type NotifyTarget = { kind: 'url'; url: string } | { kind: 'popup' } | { kind: 'search'; searchId: string };
 
 export type ChangeNotification = {
   id: string;
@@ -19,6 +21,50 @@ export type ChangeNotification = {
   contextMessage?: string;
   target: NotifyTarget;
 };
+
+export type SearchAlertInput = { search: SavedSearch; label: string; cars: CarSummary[] };
+
+const joinParts = (parts: (string | number | null)[], separator = ' · '): string =>
+  parts.filter((part) => part !== null && part !== '').join(separator);
+
+const summaryPrice = (car: CarSummary): string | null =>
+  car.price === null ? null : `${priceSymbol(car.currency)}${car.price.toLocaleString()}`;
+
+// Arrivals are per-run, not the persistent unread count. Repeated checks of an
+// unread car must never keep notifying. The caller supplies alarm-run arrivals.
+export function buildSearchAlertNotifications(perSearch: SearchAlertInput[]): ChangeNotification[] {
+  return perSearch.flatMap(({ search, label, cars }): ChangeNotification[] => {
+    if (search.alerts !== true || cars.length === 0) return [];
+    const car = cars[0]!;
+    if (cars.length === 1) {
+      let unit: 'mi' | 'km' = 'mi';
+      try { unit = distanceUnitFromPath(new URL(search.url).pathname); } catch { /* unknown locale */ }
+      const url = orderUrl(search, car.orderId);
+      return [{
+        id: `tih:match:${search.id}:${car.orderId}`,
+        title: `New match · ${label}`,
+        message: joinParts([
+          joinParts([car.year, car.model, car.trim], ' '),
+          summaryPrice(car),
+          search.condition === 'used' && car.odometer !== null
+            ? `${car.odometer.toLocaleString()} ${unit}` : null,
+        ]),
+        contextMessage: joinParts([
+          car.paint, car.wheels, car.interior, car.seats, car.towHitch ? 'Tow Hitch' : null,
+        ]),
+        target: url ? { kind: 'url', url } : { kind: 'popup' },
+      }];
+    }
+    const lines = cars.slice(0, 3).map((c) => joinParts([c.trim, c.paint, summaryPrice(c)]));
+    if (cars.length > 3) lines.push(`+${cars.length - 3} more`);
+    return [{
+      id: `tih:matches:${search.id}`,
+      title: `${cars.length} new matches · ${label}`,
+      message: lines.join('\n'),
+      target: { kind: 'search', searchId: search.id },
+    }];
+  });
+}
 
 // Turn a run's qualifying changes into notification content, or null when there
 // is nothing to announce. One changed car → a car-specific notification that

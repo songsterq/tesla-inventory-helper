@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   addSearch,
+  anySearchAlerts,
+  setSearchAlerts,
+  orderUrl,
+  distanceUnitFromPath,
   clampRange,
   compactAmount,
   conditionFromPath,
@@ -11,6 +15,7 @@ import {
   groupsFromUrl,
   isCurrentSearch,
   isInventoryListingPath,
+  isSameListing,
   isSameSearchUrl,
   MAX_DESCRIPTION_LENGTH,
   MAX_NAME_LENGTH,
@@ -22,9 +27,11 @@ import {
   removeSearch,
   renameSearch,
   restoreRangeTarget,
+  savedSearchRange,
   searchLabel,
   searchLabelShort,
   userSetRanges,
+  withSearchedRange,
   type CapturedRange,
   type CapturedView,
   type SavedSearch,
@@ -114,6 +121,53 @@ describe('normalizeSearchUrl / isSameSearchUrl', () => {
         'https://www.tesla.com/inventory/used/m3?zip=98052',
       ),
     ).toBe(false);
+  });
+
+  // The two URLs Tesla writes for one view (verified Nov 2026): a fresh load
+  // drops `range` and appends `PaymentType`; a filter click writes `range` back
+  // and leaves `PaymentType` out.
+  const LOADED =
+    'https://www.tesla.com/inventory/new/my?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&zip=98052&PaymentType=cash';
+  const CLICKED =
+    'https://www.tesla.com/inventory/new/my?arrangeby=plh&zip=98052&range=200&TRIM=MY_PR_AWD&PAINT=WHITE';
+
+  it("treats Tesla's load and filter-click URLs for one view as the same search", () => {
+    expect(isSameSearchUrl(LOADED, CLICKED)).toBe(true);
+    expect(isSameSearchUrl(`${CLICKED}&PaymentType=lease`, LOADED)).toBe(true);
+    expect(isSameSearchUrl(LOADED, CLICKED.replace('PAINT=WHITE', 'PAINT=BLACK'))).toBe(false);
+    expect(isSameSearchUrl(LOADED, CLICKED.replace('/new/', '/used/'))).toBe(false);
+  });
+
+  it('counts the radius only when both URLs carry one', () => {
+    expect(isSameSearchUrl(CLICKED, CLICKED.replace('range=200', 'range=50'))).toBe(false);
+    expect(isSameSearchUrl(`${LOADED}&range=200`, CLICKED)).toBe(true);
+    expect(isSameSearchUrl(`${LOADED}&range=100`, CLICKED)).toBe(false);
+  });
+
+  it('fills in the searched radius only when the URL has none', () => {
+    expect(withSearchedRange(LOADED, 200)).toBe(`${LOADED}&range=200`);
+    expect(withSearchedRange(CLICKED, 50)).toBe(CLICKED);
+    expect(withSearchedRange(LOADED, null)).toBe(LOADED);
+    expect(withSearchedRange(LOADED, Number.NaN)).toBe(LOADED);
+    // A saved 200 mi search isn't the view once Tesla runs its stored 50 mi.
+    expect(isSameSearchUrl(withSearchedRange(LOADED, 50), CLICKED)).toBe(false);
+    expect(isSameSearchUrl(withSearchedRange(LOADED, 200), CLICKED)).toBe(true);
+  });
+
+  it('isSameListing ignores the radius, which a restore sets in place', () => {
+    expect(isSameListing(CLICKED, CLICKED.replace('range=200', 'range=50'))).toBe(true);
+    expect(isSameListing(LOADED, CLICKED)).toBe(true);
+    expect(isSameListing(LOADED, CLICKED.replace('TRIM=MY_PR_AWD', 'TRIM=MY_LR_AWD'))).toBe(false);
+  });
+
+  it('savedSearchRange reads the radius a search was saved at', () => {
+    expect(savedSearchRange({ url: CLICKED })).toBe(200);
+    expect(savedSearchRange({ url: CLICKED.replace('range=200', 'range=0') })).toBe(0);
+    // Saved from a freshly loaded page by an older version: no radius to set.
+    expect(savedSearchRange({ url: LOADED })).toBeNull();
+    expect(savedSearchRange({ url: CLICKED.replace('range=200', 'range=far') })).toBeNull();
+    expect(savedSearchRange({ url: CLICKED.replace('range=200', 'range=-5') })).toBeNull();
+    expect(savedSearchRange({})).toBeNull();
   });
 
   it('keeps a URL without a query string bare', () => {
@@ -298,7 +352,7 @@ describe('defaultName / searchLabel', () => {
 });
 
 describe('createSavedSearch', () => {
-  it('builds a slim record with a normalized url and only user-set ranges', () => {
+  it('builds a slim record with a normalized url, only user-set ranges, and alerts on', () => {
     const s = createSavedSearch(fullView(), `${HREF}#hash`, 1234, 'abc');
     expect(s).toEqual({
       id: 'abc',
@@ -312,6 +366,7 @@ describe('createSavedSearch', () => {
         Year: { min: 2023, max: 2026 },
       },
       createdAt: 1234,
+      alerts: true,
     });
   });
 
@@ -333,6 +388,17 @@ describe('isCurrentSearch', () => {
     expect(isCurrentSearch(b, url, page)).toBe(false);
     expect(isCurrentSearch(a, url, {})).toBe(false);
     expect(isCurrentSearch(a, 'https://www.tesla.com/inventory/used/m3?arrangeby=plh&zip=98052', page)).toBe(false);
+  });
+
+  it('recognizes a search saved after filter clicks on a freshly loaded page', () => {
+    const saved = search('n', {
+      url: 'https://www.tesla.com/inventory/new/my?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&range=200&zip=98052',
+      ranges: {},
+    });
+    const loaded =
+      'https://www.tesla.com/inventory/new/my?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&zip=98052&PaymentType=cash';
+    expect(isCurrentSearch(saved, withSearchedRange(loaded, 200), {})).toBe(true);
+    expect(isCurrentSearch(saved, withSearchedRange(loaded, 100), {})).toBe(false);
   });
 
   it('treats sliders at their bounds as "no range", matching a search saved that way', () => {
@@ -357,6 +423,13 @@ describe('addSearch / findDuplicate / removeSearch / renameSearch', () => {
     // Same url, different sliders → a distinct search.
     const other = search('c', { url: existing.url, ranges: { Year: { min: 2024, max: 2026 } } });
     expect(addSearch([existing], other).ok).toBe(true);
+  });
+
+  it("rejects the same view saved under Tesla's other URL form, but not another radius", () => {
+    const base = 'https://www.tesla.com/inventory/new/my?TRIM=MY_PR_AWD&arrangeby=plh&zip=98052';
+    const existing = search('a', { url: `${base}&range=200`, ranges: {} });
+    expect(findDuplicate([existing], search('b', { url: `${base}&PaymentType=cash`, ranges: {} }))?.id).toBe('a');
+    expect(findDuplicate([existing], search('c', { url: `${base}&range=50`, ranges: {} }))).toBeUndefined();
   });
 
   it('rejects when full', () => {
@@ -406,5 +479,76 @@ describe('restore helpers', () => {
     expect(rangeWriteSettled({ min: 5000, max: 30000 }, { min: 5000, max: 30000 }, bounds)).toBe(true);
     expect(rangeWriteSettled({ min: 5000, max: 120000 }, { min: 5000, max: 98000 }, bounds)).toBe(true);
     expect(rangeWriteSettled({ min: 5000, max: 30000 }, { min: 2000, max: 30000 }, bounds)).toBe(false);
+  });
+});
+
+describe('saved-search alerts', () => {
+  it('defaults off and changes only the selected search without mutating input', () => {
+    const searches = [search('a'), search('b')];
+    expect(anySearchAlerts(searches)).toBe(false);
+    expect(anySearchAlerts([])).toBe(false);
+    const enabled = setSearchAlerts(searches, 'a', true);
+    expect(enabled).not.toBe(searches);
+    expect(enabled[0]).toEqual({ ...searches[0], alerts: true });
+    expect(enabled[1]).toBe(searches[1]);
+    expect(searches[0]?.alerts).toBeUndefined();
+    expect(anySearchAlerts(enabled)).toBe(true);
+    const disabled = setSearchAlerts(enabled, 'a', false);
+    expect(disabled[0]?.alerts).toBe(false);
+    expect(anySearchAlerts(disabled)).toBe(false);
+  });
+
+  it('preserves the array reference for missing ids and unchanged flags', () => {
+    const searches = [search('a'), search('b', { alerts: false }), search('c', { alerts: true })];
+    expect(setSearchAlerts(searches, 'missing', true)).toBe(searches);
+    expect(setSearchAlerts(searches, 'a', false)).toBe(searches);
+    expect(setSearchAlerts(searches, 'b', false)).toBe(searches);
+    expect(setSearchAlerts(searches, 'c', true)).toBe(searches);
+  });
+});
+
+describe('orderUrl', () => {
+  const masked = '7SAY230_2df0b2b503fecb0921d4a5dc9f254b50';
+
+  it('builds a US new order URL and keeps a masked order ID intact', () => {
+    const s = search('a', { url: 'https://www.tesla.com/inventory/new/my?zip=98052', condition: 'new' });
+    expect(orderUrl(s, masked)).toBe(`https://www.tesla.com/my/order/${masked}?titleStatus=new&redirect=no`);
+  });
+
+  it('builds a US used order URL', () => {
+    expect(orderUrl(search('a'), '7SAYGDEE5PF789500')).toBe(
+      'https://www.tesla.com/my/order/7SAYGDEE5PF789500?titleStatus=used&redirect=no',
+    );
+  });
+
+  it('preserves locale, model and origin and drops listing params and hash', () => {
+    const s = search('a', { url: 'https://www.tesla.com/en_CA/inventory/new/m3?range=200#old', condition: 'new' });
+    expect(orderUrl(s, masked)).toBe(`https://www.tesla.com/en_CA/m3/order/${masked}?titleStatus=new&redirect=no`);
+    expect(orderUrl({ ...s, url: s.url.replace('www.tesla.com', 'tesla.example') }, masked)).toBe(
+      `https://tesla.example/en_CA/m3/order/${masked}?titleStatus=new&redirect=no`,
+    );
+  });
+
+  it('encodes order IDs as a single path segment', () => {
+    expect(orderUrl(search('a'), 'a/b?c#d e')).toBe(
+      'https://www.tesla.com/my/order/a%2Fb%3Fc%23d%20e?titleStatus=used&redirect=no',
+    );
+  });
+
+  it.each(['not a URL', 'https://[', 'https://www.tesla.com/inventory/new',
+    'https://www.tesla.com/en_CA/inventory/used/', 'https://www.tesla.com/my/order/abc',
+    'https://www.tesla.com/inventory/new//'])('returns null for an invalid listing: %s', (url) => {
+    expect(orderUrl(search('a', { url }), masked)).toBeNull();
+  });
+});
+
+describe('distanceUnitFromPath', () => {
+  it('shares the existing US/UK miles and other locale kilometers convention', () => {
+    for (const path of ['/inventory/used/my', '/en_US/inventory/new/my', '/en_GB/inventory/used/my']) {
+      expect(distanceUnitFromPath(path)).toBe('mi');
+    }
+    for (const locale of ['en_CA', 'fr_CA', 'de_DE', 'en_AU']) {
+      expect(distanceUnitFromPath(`/${locale}/inventory/used/my`)).toBe('km');
+    }
   });
 });

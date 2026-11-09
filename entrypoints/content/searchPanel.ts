@@ -5,6 +5,7 @@ import {
   type SavedSearch,
   type SavedSearches,
 } from '../../src/savedSearches';
+import { BELL_SVG } from '../../src/bellIcon';
 import styles from './searchPanel.css?raw';
 
 // The on-page "Saved searches" control: a pill that lives inline in Tesla's
@@ -32,6 +33,7 @@ export type SearchPanelHandlers = {
   onSave: () => Promise<SaveOutcome>;
   onOpen: (search: SavedSearch) => void | Promise<void>;
   onRename: (id: string, name: string) => Promise<void>;
+  onAlerts: (id: string, on: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 };
 
@@ -41,6 +43,7 @@ const ICON_SVG =
   '<svg class="pill-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">' +
   '<path d="M3.5 2.5h9a1 1 0 0 1 1 1v10.2l-5.5-3.1-5.5 3.1V3.5a1 1 0 0 1 1-1z" ' +
   'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+
 
 let handlers: SearchPanelHandlers | null = null;
 let root: HTMLElement | null = null;
@@ -283,7 +286,7 @@ async function doSave(): Promise<void> {
   try {
     const result = await handlers.onSave();
     if (result.ok) {
-      setPanelStatus(`Saved "${result.label}".`, 'ok', 4000);
+      setPanelStatus(`Saved "${result.label}" with alerts on. Use the bell to turn them off.`, 'ok', 6000);
       return;
     }
     switch (result.reason) {
@@ -315,9 +318,13 @@ function renderRow(
   const li = document.createElement('li');
   li.className = 'row';
   li.dataset.id = search.id;
-  // URL and sliders both match: this row is the view on screen.
+  // URL and sliders both match: this row is the view on screen. It glows like
+  // a matched car instead of carrying a label, which would cost row width.
   const isCurrent = isCurrentSearch(search, href, pageRanges);
-  if (isCurrent) li.classList.add('current');
+  if (isCurrent) {
+    li.classList.add('current');
+    li.setAttribute('aria-current', 'true');
+  }
 
   const main = document.createElement('div');
   main.className = 'row-main';
@@ -334,13 +341,6 @@ function renderRow(
     if (!handlers) return;
     void handlers.onOpen(search);
   });
-  const tags: HTMLElement[] = [];
-  if (isCurrent) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = 'Current';
-    tags.push(tag);
-  }
   const fresh = newCounts[search.id] ?? 0;
   if (fresh > 0) {
     const chip = document.createElement('span');
@@ -350,12 +350,9 @@ function renderRow(
       fresh === 1
         ? '1 car matched since you last opened this search'
         : `${fresh} cars matched since you last opened this search`;
-    tags.push(chip);
-  }
-  if (tags.length > 0) {
     const head = document.createElement('div');
     head.className = 'row-head';
-    head.append(name, ...tags);
+    head.append(name, chip);
     main.append(head);
   } else {
     main.append(name);
@@ -371,6 +368,19 @@ function renderRow(
 
   const actions = document.createElement('div');
   actions.className = 'row-actions';
+
+  const bell = document.createElement('button');
+  bell.className = 'icon-btn search-alert';
+  bell.type = 'button';
+  bell.setAttribute('aria-pressed', String(search.alerts === true));
+  bell.title = search.alerts === true ? 'Alerts on — click to turn off' : 'Alert me about new matches';
+  bell.setAttribute('aria-label', `${bell.title}: ${label}`);
+  bell.innerHTML = BELL_SVG;
+  bell.addEventListener('click', () => {
+    if (!handlers) return;
+    const current = currentSearches.find((s) => s.id === search.id);
+    if (current) void handlers.onAlerts(search.id, current.alerts !== true);
+  });
 
   const rename = document.createElement('button');
   rename.className = 'icon-btn';
@@ -391,7 +401,7 @@ function renderRow(
     void handlers.onDelete(search.id);
   });
 
-  actions.append(rename, remove);
+  actions.append(bell, rename, remove);
   li.append(main, actions);
   return li;
 }

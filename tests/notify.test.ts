@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildChangeNotification, toRunChange, type RunChange } from '../src/notify';
+import { buildChangeNotification, buildSearchAlertNotifications, toRunChange, type RunChange } from '../src/notify';
+import type { CarSummary } from '../src/inventoryCar';
+import { searchLabel, type SavedSearch } from '../src/savedSearches';
 import type { CarSnapshot, SavedCar } from '../src/savedCars';
 
 function snap(overrides: Partial<CarSnapshot> = {}): CarSnapshot {
@@ -138,5 +140,110 @@ describe('toRunChange', () => {
     const result = makeCar({ lastChange: 'price-rise', latest: snap({ price: 41000 }) });
 
     expect(toRunChange(existing, result)).toBeNull();
+  });
+});
+
+const alertSearch = (overrides: Partial<SavedSearch> = {}): SavedSearch => ({
+  id: 'abc123ef', name: '', description: 'New Model Y, Premium AWD',
+  url: 'https://www.tesla.com/inventory/new/my', condition: 'new',
+  ranges: {}, createdAt: 0, alerts: true, ...overrides,
+});
+const summaryCar = (overrides: Partial<CarSummary> = {}): CarSummary => ({
+  key: '230_2df0b2b503fecb0921d4a5dc9f254b50',
+  orderId: '7SAY230_2df0b2b503fecb0921d4a5dc9f254b50',
+  year: 2027, model: 'Model Y', trim: 'Premium All-Wheel Drive', price: 53490, currency: 'USD',
+  paint: 'Stealth Grey', wheels: '19’’ Crossflow Wheels', interior: 'All Black Premium Interior',
+  seats: 'Seven Seat Layout', towHitch: true, odometer: 42000, ...overrides,
+});
+const searchInput = (search = alertSearch(), cars = [summaryCar()]) => ({
+  search, label: searchLabel(search), cars,
+});
+
+describe('buildSearchAlertNotifications', () => {
+  it('skips empty arrivals and searches with alerts off or absent', () => {
+    expect(buildSearchAlertNotifications([])).toEqual([]);
+    expect(buildSearchAlertNotifications([
+      searchInput(alertSearch(), []),
+      searchInput(alertSearch({ alerts: false })),
+      searchInput(alertSearch({ alerts: undefined })),
+    ])).toEqual([]);
+  });
+
+  it('announces one new car with full configuration, Tow Hitch, and its masked order URL', () => {
+    const car = summaryCar();
+    expect(buildSearchAlertNotifications([searchInput()])).toEqual([{
+      id: `tih:match:abc123ef:${car.orderId}`,
+      title: 'New match · New Model Y, Premium AWD',
+      message: '2027 Model Y Premium All-Wheel Drive · $53,490',
+      contextMessage: 'Stealth Grey · 19’’ Crossflow Wheels · All Black Premium Interior · Seven Seat Layout · Tow Hitch',
+      target: { kind: 'url', url: `https://www.tesla.com/my/order/${car.orderId}?titleStatus=new&redirect=no` },
+    }]);
+  });
+
+  it('shows mileage only for a used search, including zero', () => {
+    const search = alertSearch({ condition: 'used', url: 'https://www.tesla.com/inventory/used/my' });
+    expect(buildSearchAlertNotifications([searchInput(search)])[0]?.message).toBe(
+      '2027 Model Y Premium All-Wheel Drive · $53,490 · 42,000 mi',
+    );
+    expect(buildSearchAlertNotifications([searchInput(search, [summaryCar({ odometer: 0 })])])[0]?.message).toContain(' · 0 mi');
+    expect(buildSearchAlertNotifications([searchInput(search, [summaryCar({ odometer: null })])])[0]?.message).toBe(
+      '2027 Model Y Premium All-Wheel Drive · $53,490',
+    );
+  });
+
+  it('uses the saved URL locale for distance and the existing currency symbols', () => {
+    const search = alertSearch({ condition: 'used', url: 'https://www.tesla.com/en_CA/inventory/used/my' });
+    expect(buildSearchAlertNotifications([searchInput(search, [summaryCar({ currency: 'CAD' })])])[0]?.message).toBe(
+      '2027 Model Y Premium All-Wheel Drive · CA$53,490 · 42,000 km',
+    );
+  });
+
+  it('skips null parts cleanly and omits Tow Hitch when absent', () => {
+    const car = summaryCar({ year: null, trim: null, price: null, paint: null, wheels: null, seats: null, towHitch: false });
+    const n = buildSearchAlertNotifications([searchInput(alertSearch({ name: 'My next car' }), [car])])[0]!;
+    expect(n.title).toBe('New match · My next car');
+    expect(n.message).toBe('Model Y');
+    expect(n.contextMessage).toBe('All Black Premium Interior');
+    const empty = summaryCar({ year: null, model: null, trim: null, price: null,
+      paint: null, wheels: null, interior: null, seats: null, towHitch: false });
+    const sparse = buildSearchAlertNotifications([searchInput(alertSearch(), [empty])])[0]!;
+    expect(sparse.message).toBe('');
+    expect(sparse.contextMessage).toBe('');
+  });
+
+  it('keeps a zero price and handles unknown currency without a fabricated symbol', () => {
+    expect(buildSearchAlertNotifications([searchInput(alertSearch(), [summaryCar({ price: 0, currency: null })])])[0]?.message).toBe(
+      '2027 Model Y Premium All-Wheel Drive · 0',
+    );
+  });
+
+  it('summarizes several cars in at most three car lines and targets the saved search', () => {
+    const cars = [summaryCar(), summaryCar({ trim: 'RWD', paint: null, price: 41990 })];
+    expect(buildSearchAlertNotifications([searchInput(alertSearch(), cars)])).toEqual([{
+      id: 'tih:matches:abc123ef', title: '2 new matches · New Model Y, Premium AWD',
+      message: 'Premium All-Wheel Drive · Stealth Grey · $53,490\nRWD · $41,990',
+      target: { kind: 'search', searchId: 'abc123ef' },
+    }]);
+    const many = buildSearchAlertNotifications([searchInput(alertSearch(), Array.from({ length: 5 }, () => summaryCar()))])[0]!;
+    expect(many.title).toBe('5 new matches · New Model Y, Premium AWD');
+    expect(many.message.split('\n')).toEqual([
+      'Premium All-Wheel Drive · Stealth Grey · $53,490',
+      'Premium All-Wheel Drive · Stealth Grey · $53,490',
+      'Premium All-Wheel Drive · Stealth Grey · $53,490',
+      '+2 more',
+    ]);
+    expect(buildSearchAlertNotifications([searchInput(alertSearch(), [...cars, summaryCar()])])[0]?.message).not.toContain('more');
+  });
+
+  it('builds one notification per search with arrivals', () => {
+    const ns = buildSearchAlertNotifications([
+      searchInput(), searchInput(alertSearch({ id: 'second' })), searchInput(alertSearch({ id: 'empty' }), []),
+    ]);
+    expect(ns).toHaveLength(2);
+    expect(ns[1]?.id).toContain('tih:match:second:');
+  });
+
+  it.each(['invalid', 'https://www.tesla.com/inventory/new/'])('targets the popup when the order URL cannot be built: %s', (url) => {
+    expect(buildSearchAlertNotifications([searchInput(alertSearch({ url }))])[0]?.target).toEqual({ kind: 'popup' });
   });
 });

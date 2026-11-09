@@ -48,6 +48,7 @@ export type SavedSearch = {
   condition: SearchCondition;
   ranges: Partial<Record<RangeKey, SavedRange>>;
   createdAt: number;
+  alerts?: boolean; // absent means off
 };
 
 export type SavedSearches = SavedSearch[];
@@ -74,6 +75,24 @@ export function conditionFromPath(pathname: string): SearchCondition | null {
   return m[2]?.toLowerCase() === 'new' ? 'new' : 'used';
 }
 
+// Tesla's odometer boxes omit units; the existing capture fallback uses the
+// locale prefix. Share it with alerts so a Canadian search still reads in km.
+export function distanceUnitFromPath(pathname: string): 'mi' | 'km' {
+  const locale = /^\/([a-z]{2}_[A-Z]{2})\//.exec(pathname)?.[1] ?? 'en_US';
+  return ['en_US', 'en_GB'].includes(locale) ? 'mi' : 'km';
+}
+
+export function orderUrl(search: SavedSearch, orderId: string): string | null {
+  try {
+    const url = new URL(search.url);
+    const match = /^(.*?)\/inventory\/(?:used|new)\/([^/]+)(?:\/|$)/i.exec(url.pathname);
+    if (!match) return null;
+    return `${url.origin}${match[1]}/${match[2]}/order/${encodeURIComponent(orderId)}?titleStatus=${search.condition}&redirect=no`;
+  } catch {
+    return null;
+  }
+}
+
 // Canonical form of a listing URL: hash dropped, empty params dropped, params
 // sorted. Tesla reorders/rewrites its own query string between loads, so both
 // the stored URL and comparisons go through this.
@@ -91,8 +110,78 @@ export function normalizeSearchUrl(href: string): string {
   return `${url.origin}${url.pathname}${qs ? `?${qs}` : ''}`;
 }
 
+// Tesla keeps the search radius (`range`) and payment type (`PaymentType`) in
+// its own localStorage, so the URL doesn't reliably carry them (verified Nov
+// 2026, used and new pages alike). A page load drops a `range` the URL already
+// has and searches the stored radius instead (a restore sets it through the
+// page, see savedSearchRange), and appends whichever of the two the URL lacks. A filter click writes `range` back but leaves `PaymentType`
+// out, and switching payment type doesn't touch the URL at all. So one view
+// shows up under several URLs:
+//   load:  ?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&zip=98052&PaymentType=cash
+//   click: ?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&zip=98052&range=200
+// `PaymentType` never distinguishes views: it changes how prices read, not which
+// cars match, and a search's payment slider is compared separately. A `range`
+// that's present is always the radius in effect when the URL was written, so
+// it counts, but only when both sides carry one.
+const VIEW_IGNORED_PARAMS = ['range', 'PaymentType'] as const;
+
+function viewKey(href: string): { rest: string; range: string | null } {
+  const normalized = normalizeSearchUrl(href);
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    return { rest: normalized, range: null };
+  }
+  const range = url.searchParams.get('range') || null;
+  for (const param of VIEW_IGNORED_PARAMS) url.searchParams.delete(param);
+  return { rest: url.toString(), range };
+}
+
+// Whether two listing URLs show the same view (see VIEW_IGNORED_PARAMS).
 export function isSameSearchUrl(a: string, b: string): boolean {
-  return normalizeSearchUrl(a) === normalizeSearchUrl(b);
+  const x = viewKey(a);
+  const y = viewKey(b);
+  return x.rest === y.rest && (x.range === null || y.range === null || x.range === y.range);
+}
+
+// Same listing apart from the radius: everything a restore can't change
+// without navigating. The radius it sets in place (see savedSearchRange).
+export function isSameListing(a: string, b: string): boolean {
+  return viewKey(a).rest === viewKey(b).rest;
+}
+
+// The radius a search was saved at, from its URL. A restore has to set it on the
+// page itself, since Tesla ignores the URL's radius on load. Null when the URL
+// has none (saved from a freshly loaded page by an older version) or it's
+// unreadable; the restore then leaves the page's radius alone.
+export function savedSearchRange(search: { url?: unknown }): number | null {
+  if (typeof search.url !== 'string') return null;
+  let raw: string | null;
+  try {
+    raw = new URL(search.url, 'https://www.tesla.com').searchParams.get('range');
+  } catch {
+    return null;
+  }
+  if (!raw || !/^\d+$/.test(raw.trim())) return null;
+  const range = Number(raw);
+  return Number.isSafeInteger(range) ? range : null;
+}
+
+// A listing URL with the radius Tesla actually searched filled in when the URL
+// has none (a fresh load drops it), so a view at a different radius can't pass
+// for a saved search. `range` comes from Tesla's latest inventory request.
+export function withSearchedRange(href: string, range: number | null): string {
+  if (range === null || !Number.isFinite(range) || range < 0) return href;
+  let url: URL;
+  try {
+    url = new URL(href, 'https://www.tesla.com');
+  } catch {
+    return href;
+  }
+  if (url.searchParams.get('range')) return href;
+  url.searchParams.set('range', String(range));
+  return url.toString();
 }
 
 // "$25,000" → 25000, "2,000" → 2000, "" → null.
@@ -356,6 +445,10 @@ export function createSavedSearch(
     condition: view.condition,
     ranges: userSetRanges(view.ranges),
     createdAt: now,
+    // On by default: shoppers save a search to hear about new matches, and the
+    // bell in the same row turns alerts off in one click. Searches saved by
+    // older versions keep `alerts` absent (off).
+    alerts: true,
   };
 }
 
@@ -367,10 +460,11 @@ export const rangesEqual = (a: SavedSearch['ranges'], b: SavedSearch['ranges']):
     return !!x && !!y && x.min === y.min && x.max === y.max;
   });
 
-// "Current" means the page IS this search: same listing URL and the sliders
-// where the search saved them. `pageRanges` is the page's user-set slider state
-// (see userSetRanges), so several searches saved from one URL with different
-// sliders never all light up at once.
+// "Current" means the page IS this search: the same view (isSameSearchUrl) and
+// the sliders where the search saved them. `pageRanges` is the page's user-set
+// slider state (see userSetRanges), so several searches saved from one URL with
+// different sliders never all light up at once. Callers pass the page URL
+// through withSearchedRange first.
 export function isCurrentSearch(
   search: SavedSearch,
   href: string,
@@ -379,8 +473,11 @@ export function isCurrentSearch(
   return isSameSearchUrl(href, search.url) && rangesEqual(search.ranges, pageRanges);
 }
 
+// A duplicate is a search that would show as current for the candidate's view,
+// so saving the same view from a freshly loaded page and after a filter click
+// (two different URLs, see VIEW_IGNORED_PARAMS) can't produce two rows.
 export function findDuplicate(searches: SavedSearches, candidate: SavedSearch): SavedSearch | undefined {
-  return searches.find((s) => s.url === candidate.url && rangesEqual(s.ranges, candidate.ranges));
+  return searches.find((s) => isCurrentSearch(s, candidate.url, candidate.ranges));
 }
 
 export type AddSearchResult =
@@ -398,6 +495,15 @@ export function addSearch(searches: SavedSearches, search: SavedSearch): AddSear
 
 export function removeSearch(searches: SavedSearches, id: string): SavedSearches {
   return searches.filter((s) => s.id !== id);
+}
+
+export function setSearchAlerts(searches: SavedSearches, id: string, on: boolean): SavedSearches {
+  if (!searches.some((s) => s.id === id && (s.alerts === true) !== on)) return searches;
+  return searches.map((s) => (s.id === id ? { ...s, alerts: on } : s));
+}
+
+export function anySearchAlerts(searches: SavedSearches): boolean {
+  return searches.some((s) => s.alerts === true);
 }
 
 // Set or clear the custom name: whitespace is trimmed, the length capped, and

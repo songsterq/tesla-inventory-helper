@@ -1,8 +1,18 @@
-export function extractVin(dataId: string | null | undefined): string | null {
+export const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/;
+export const LISTING_HASH_RE = /^\d+_[0-9a-f]{32}$/;
+
+export function carKeyFromDataId(dataId: string | null | undefined): string | null {
   if (!dataId) return null;
-  const first = dataId.split('-')[0];
-  if (!first || first.length < 17) return null;
-  return first.slice(0, 17).toUpperCase();
+  const prefix = dataId.split('-')[0];
+  if (!prefix) return null;
+  const vin = prefix.toUpperCase();
+  if (VIN_RE.test(vin)) return vin;
+  return LISTING_HASH_RE.test(prefix) ? prefix : null;
+}
+
+export function extractVin(dataId: string | null | undefined): string | null {
+  const key = carKeyFromDataId(dataId);
+  return key && VIN_RE.test(key) ? key : null;
 }
 
 export function extractVinFromOrderPath(pathname: string | null | undefined): string | null {
