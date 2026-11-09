@@ -113,8 +113,8 @@ export function normalizeSearchUrl(href: string): string {
 // Tesla keeps the search radius (`range`) and payment type (`PaymentType`) in
 // its own localStorage, so the URL doesn't reliably carry them (verified Nov
 // 2026, used and new pages alike). A page load drops a `range` the URL already
-// has and searches the stored radius instead, and appends whichever of the two
-// the URL lacks. A filter click writes `range` back but leaves `PaymentType`
+// has and searches the stored radius instead (a restore sets it through the
+// page, see savedSearchRange), and appends whichever of the two the URL lacks. A filter click writes `range` back but leaves `PaymentType`
 // out, and switching payment type doesn't touch the URL at all. So one view
 // shows up under several URLs:
 //   load:  ?PAINT=WHITE&TRIM=MY_PR_AWD&arrangeby=plh&zip=98052&PaymentType=cash
@@ -143,6 +143,29 @@ export function isSameSearchUrl(a: string, b: string): boolean {
   const x = viewKey(a);
   const y = viewKey(b);
   return x.rest === y.rest && (x.range === null || y.range === null || x.range === y.range);
+}
+
+// Same listing apart from the radius: everything a restore can't change
+// without navigating. The radius it sets in place (see savedSearchRange).
+export function isSameListing(a: string, b: string): boolean {
+  return viewKey(a).rest === viewKey(b).rest;
+}
+
+// The radius a search was saved at, from its URL. A restore has to set it on the
+// page itself, since Tesla ignores the URL's radius on load. Null when the URL
+// has none (saved from a freshly loaded page by an older version) or it's
+// unreadable; the restore then leaves the page's radius alone.
+export function savedSearchRange(search: { url?: unknown }): number | null {
+  if (typeof search.url !== 'string') return null;
+  let raw: string | null;
+  try {
+    raw = new URL(search.url, 'https://www.tesla.com').searchParams.get('range');
+  } catch {
+    return null;
+  }
+  if (!raw || !/^\d+$/.test(raw.trim())) return null;
+  const range = Number(raw);
+  return Number.isSafeInteger(range) ? range : null;
 }
 
 // A listing URL with the radius Tesla actually searched filled in when the URL
@@ -422,6 +445,10 @@ export function createSavedSearch(
     condition: view.condition,
     ranges: userSetRanges(view.ranges),
     createdAt: now,
+    // On by default: shoppers save a search to hear about new matches, and the
+    // bell in the same row turns alerts off in one click. Searches saved by
+    // older versions keep `alerts` absent (off).
+    alerts: true,
   };
 }
 

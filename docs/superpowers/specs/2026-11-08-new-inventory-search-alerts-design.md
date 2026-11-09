@@ -31,8 +31,8 @@ three ways:
 ## Goal
 
 - New-match detection works on new-inventory searches.
-- Each saved search gets a **per-search opt-in** to OS notifications for new
-  matches.
+- Each saved search gets a **per-search switch** for OS notifications about
+  new matches, on by default for new saves.
 - Searches with alerts on are checked on their own faster schedule (15 min /
   30 min / 1 hour). The watchlist schedule is unchanged.
 - A single-car notification opens that car's order page, the shortest path to
@@ -43,10 +43,12 @@ shouldn't go out broken on new inventory.
 
 ## Decisions
 
-- **Opt-in per search, off by default.** A bell on each saved-search row, in
-  both the popup and the on-page panel. Broad used searches stay quiet, which
-  was the reason for the original "no notifications" call, and narrow
-  order-swap searches can be loud.
+- **Per search, on by default for new saves.** A bell on each saved-search row,
+  in both the popup and the on-page panel. This was first designed as opt-in
+  (off by default) so broad used searches stayed quiet; after review it changed
+  to on by default, since shoppers save a search to hear about new matches and
+  the bell in the same row turns alerts off in one click. The save confirmation
+  says alerts are on. Searches saved before this change stay off.
 - **A separate schedule for alerted searches.** It has a new frequency
   setting: every 15 min, 30 min (default) or 1 hour. The setting only appears
   while at least one search has alerts on. The existing watchlist schedule

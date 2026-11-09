@@ -39,7 +39,7 @@ import {
   groupsFromUrl,
   isCurrentSearch,
   isInventoryListingPath,
-  isSameSearchUrl,
+  isSameListing,
   parseDigits,
   planRangeWrites,
   RANGE_KEYS,
@@ -48,6 +48,7 @@ import {
   renameSearch,
   setSearchAlerts,
   restoreRangeTarget,
+  savedSearchRange,
   searchLabelShort,
   userSetRanges,
   withSearchedRange,
@@ -194,12 +195,14 @@ function scrapeCar(): ScrapeResult {
   return { ready: false };
 }
 
-// ─── Saved searches: sidebar capture + slider restore ───
+// ─── Saved searches: sidebar capture + radius and slider restore ───
 //
-// tesla.com keeps checkbox/radio filters, sort, zip and radius in the URL but
-// NOT the three sliders (Payment, Mileage, Year), and it ignores them if passed
-// as query params. So a saved search is the URL plus the slider values, and a
-// restore writes those values back into the sidebar after the page loads.
+// tesla.com keeps checkbox/radio filters, sort and zip in the URL but NOT the
+// three sliders (Payment, Mileage, Year), and it ignores them if passed as
+// query params. The radius is in the URL but Tesla searches its own stored
+// radius on load (see VIEW_IGNORED_PARAMS in src/savedSearches.ts). So a saved
+// search is the URL plus the slider values, and a restore writes the radius and
+// the sliders back into the page after it loads.
 
 const SIDEBAR_SEL = 'div.filter-content-wrapper';
 const SLIDER_WAIT_MS = 15_000;
@@ -397,6 +400,72 @@ async function applyRange(key: RangeKey, target: SavedRange): Promise<boolean> {
   }
   const final = readRange(key);
   return !!final && rangeWriteSettled(target, final.current, final.bounds ?? UNBOUNDED);
+}
+
+// The radius dropdown lives in Tesla's "Search Area" dialog, opened from the ZIP
+// link in the listing header, and leaves the DOM when the dialog closes. Setting
+// it through the native value setter plus `change` makes Tesla refetch, rewrite
+// the URL's `range` and store the new radius (verified Nov 2026). Options are
+// Tesla's radii in the listing's unit; 0 is "All Deliverable".
+const SEARCH_AREA_OPEN_SEL = '.postal-code-results-cta button';
+const SEARCH_AREA_DIALOG_SEL = 'dialog.postal-search-modal--container';
+const RADIUS_SELECT_SEL = 'select[data-id="search-radius-dropdown"]';
+const SEARCH_AREA_POLL_MS = 100;
+const SEARCH_AREA_WAIT_MS = 5000;
+const RADIUS_REQUEST_WAIT_MS = 10_000;
+
+function closeSearchArea(): void {
+  const dialog = document.querySelector<HTMLDialogElement>(SEARCH_AREA_DIALOG_SEL);
+  if (!dialog) return;
+  const close = dialog.querySelector<HTMLElement>('button.tds-modal-close');
+  if (close) close.click();
+  else dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
+
+// Set Tesla's search radius and wait for its request at that radius, so the
+// slider restore that follows sees bounds for the new results. `searchedRange`
+// reads the radius of Tesla's latest request (null until one is observed).
+async function applyRadius(target: number, searchedRange: () => number | null): Promise<boolean> {
+  // Tesla's first request has usually landed by now; waiting for it skips the
+  // dialog entirely when the stored radius already matches.
+  const initial = await pollWithTimeout(searchedRange, {
+    intervalMs: SLIDER_POLL_MS,
+    timeoutMs: RADIUS_REQUEST_WAIT_MS,
+  });
+  if (initial === target) return true;
+  const opener = await pollWithTimeout(
+    () => document.querySelector<HTMLElement>(SEARCH_AREA_OPEN_SEL),
+    { intervalMs: SLIDER_POLL_MS, timeoutMs: SLIDER_WAIT_MS },
+  );
+  if (!opener) return false;
+  opener.click();
+  const value = String(target);
+  let set = false;
+  try {
+    const select = await pollWithTimeout(
+      () => document.querySelector<HTMLSelectElement>(RADIUS_SELECT_SEL),
+      { intervalMs: SEARCH_AREA_POLL_MS, timeoutMs: SEARCH_AREA_WAIT_MS },
+    );
+    // A radius Tesla doesn't offer here (another market's units, say) fails
+    // rather than picking a neighbour.
+    if (select && Array.from(select.options).some((o) => o.value === value)) {
+      if (select.value !== value) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (setter) setter.call(select, value);
+        else select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      set = select.value === value;
+    }
+  } finally {
+    closeSearchArea();
+  }
+  if (!set) return false;
+  await pollWithTimeout(() => (searchedRange() === target ? true : null), {
+    intervalMs: SLIDER_POLL_MS,
+    timeoutMs: RADIUS_REQUEST_WAIT_MS,
+  });
+  return true;
 }
 
 type ApplyResult = { applied: RangeKey[]; failed: RangeKey[] };
@@ -680,30 +749,41 @@ export default defineContentScript({
     // The page URL with the radius Tesla actually searched filled in when the
     // URL has none, which is what saving, the panel and viewing compare
     // against (see withSearchedRange).
-    const pageSearchHref = (): string =>
-      withSearchedRange(location.href, lastRequest ? requestRange(lastRequest.request) : null);
+    // The radius of Tesla's latest request: what the page really searched.
+    const searchedRange = (): number | null =>
+      lastRequest ? requestRange(lastRequest.request) : null;
+
+    const pageSearchHref = (): string => withSearchedRange(location.href, searchedRange());
 
     const renderPanelList = () => renderSearchList(searches, pageSearchHref(), currentPageRanges());
 
-    const reportRestore = (search: SavedSearch, result: ApplyResult) => {
+    // `failed` names what couldn't be set ("search radius", "mileage", ...).
+    const reportRestore = (search: SavedSearch, failed: string[]) => {
       const label = searchLabelShort(search);
-      if (result.failed.length === 0) {
+      if (failed.length === 0) {
         setPanelStatus(`Applied "${label}".`, 'ok', 4000);
         return;
       }
-      const which = result.failed.map((k) => RANGE_KEY_LABELS[k]).join(', ');
-      setPanelStatus(`Applied "${label}", but couldn't set ${which}.`, 'error', 8000);
+      setPanelStatus(`Applied "${label}", but couldn't set ${failed.join(', ')}.`, 'error', 8000);
     };
 
-    // Sliders restore one at a time, so the page can pass through states that
+    // The radius first (its refetch changes the sliders' data-driven bounds),
+    // then the sliders one at a time, so the page passes through states that
     // match some other saved search. Viewing (which marks cars viewed) is paused
     // until the restore is done.
     let restoring = false;
-    const restoreRanges = async (ranges: SavedSearch['ranges']): Promise<ApplyResult> => {
+    const restoreSearch = async (search: SavedSearch): Promise<string[]> => {
       restoring = true;
       endView();
       try {
-        return await applyRanges(ranges);
+        const failed: string[] = [];
+        const radius = savedSearchRange(search);
+        if (radius !== null && !(await applyRadius(radius, searchedRange))) {
+          failed.push('search radius');
+        }
+        const sliders = await applyRanges(search.ranges ?? {});
+        failed.push(...sliders.failed.map((k) => RANGE_KEY_LABELS[k]));
+        return failed;
       } finally {
         restoring = false;
         evaluateView();
@@ -739,10 +819,11 @@ export default defineContentScript({
         return { ok: true, label: searchLabelShort(search) };
       },
       onOpen: async (search) => {
-        // Same listing already loaded → just push the sliders, no navigation.
-        if (isSameSearchUrl(pageSearchHref(), search.url)) {
+        // Same listing already loaded → just set the radius and sliders, no
+        // navigation.
+        if (isSameListing(location.href, search.url)) {
           setPanelStatus(`Applying "${searchLabelShort(search)}"…`, 'info');
-          reportRestore(search, await restoreRanges(search.ranges));
+          reportRestore(search, await restoreSearch(search));
           renderPanelList();
           return;
         }
@@ -776,7 +857,7 @@ export default defineContentScript({
         .catch(() => null)) as SavedSearch | null;
       if (!search || typeof search !== 'object' || typeof search.description !== 'string') return;
       setPanelStatus(`Restoring "${searchLabelShort(search)}"…`, 'info');
-      reportRestore(search, await restoreRanges(search.ranges ?? {}));
+      reportRestore(search, await restoreSearch(search));
       renderPanelList();
     };
 

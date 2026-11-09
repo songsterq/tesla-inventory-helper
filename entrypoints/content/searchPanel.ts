@@ -286,7 +286,7 @@ async function doSave(): Promise<void> {
   try {
     const result = await handlers.onSave();
     if (result.ok) {
-      setPanelStatus(`Saved "${result.label}".`, 'ok', 4000);
+      setPanelStatus(`Saved "${result.label}" with alerts on. Use the bell to turn them off.`, 'ok', 6000);
       return;
     }
     switch (result.reason) {

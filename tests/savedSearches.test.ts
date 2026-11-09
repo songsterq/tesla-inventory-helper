@@ -15,6 +15,7 @@ import {
   groupsFromUrl,
   isCurrentSearch,
   isInventoryListingPath,
+  isSameListing,
   isSameSearchUrl,
   MAX_DESCRIPTION_LENGTH,
   MAX_NAME_LENGTH,
@@ -26,6 +27,7 @@ import {
   removeSearch,
   renameSearch,
   restoreRangeTarget,
+  savedSearchRange,
   searchLabel,
   searchLabelShort,
   userSetRanges,
@@ -150,6 +152,22 @@ describe('normalizeSearchUrl / isSameSearchUrl', () => {
     // A saved 200 mi search isn't the view once Tesla runs its stored 50 mi.
     expect(isSameSearchUrl(withSearchedRange(LOADED, 50), CLICKED)).toBe(false);
     expect(isSameSearchUrl(withSearchedRange(LOADED, 200), CLICKED)).toBe(true);
+  });
+
+  it('isSameListing ignores the radius, which a restore sets in place', () => {
+    expect(isSameListing(CLICKED, CLICKED.replace('range=200', 'range=50'))).toBe(true);
+    expect(isSameListing(LOADED, CLICKED)).toBe(true);
+    expect(isSameListing(LOADED, CLICKED.replace('TRIM=MY_PR_AWD', 'TRIM=MY_LR_AWD'))).toBe(false);
+  });
+
+  it('savedSearchRange reads the radius a search was saved at', () => {
+    expect(savedSearchRange({ url: CLICKED })).toBe(200);
+    expect(savedSearchRange({ url: CLICKED.replace('range=200', 'range=0') })).toBe(0);
+    // Saved from a freshly loaded page by an older version: no radius to set.
+    expect(savedSearchRange({ url: LOADED })).toBeNull();
+    expect(savedSearchRange({ url: CLICKED.replace('range=200', 'range=far') })).toBeNull();
+    expect(savedSearchRange({ url: CLICKED.replace('range=200', 'range=-5') })).toBeNull();
+    expect(savedSearchRange({})).toBeNull();
   });
 
   it('keeps a URL without a query string bare', () => {
@@ -334,7 +352,7 @@ describe('defaultName / searchLabel', () => {
 });
 
 describe('createSavedSearch', () => {
-  it('builds a slim record with a normalized url and only user-set ranges', () => {
+  it('builds a slim record with a normalized url, only user-set ranges, and alerts on', () => {
     const s = createSavedSearch(fullView(), `${HREF}#hash`, 1234, 'abc');
     expect(s).toEqual({
       id: 'abc',
@@ -348,6 +366,7 @@ describe('createSavedSearch', () => {
         Year: { min: 2023, max: 2026 },
       },
       createdAt: 1234,
+      alerts: true,
     });
   });
 
